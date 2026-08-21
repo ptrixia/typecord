@@ -1,3 +1,4 @@
+'use client'
 import { useState, useEffect } from "react";
 import { Search, TrendingUp, Star, X } from "lucide-react";
 
@@ -22,6 +23,7 @@ export default function GifPicker({ onSendGif }: GifPickerProps) {
   const [favorites, setFavorites] = useState<string[]>([]);
   const [categoryThumbnails, setCategoryThumbnails] = useState<Record<string, string>>({});
 
+  // Efeito para carregar os favoritos
   useEffect(() => {
     const storedFavs = localStorage.getItem("@chat:favorite-gifs");
     if (storedFavs) {
@@ -33,13 +35,24 @@ export default function GifPicker({ onSendGif }: GifPickerProps) {
     }
   }, []);
 
+  // Efeito OTIMIZADO para carregar os backgrounds (com Cache)
   useEffect(() => {
     const fetchCategoryBackgrounds = async () => {
+      // 1. Verifica se já temos as imagens salvas na sessão atual
+      const cachedThumbnails = sessionStorage.getItem("@chat:category-thumbnails");
+      
+      if (cachedThumbnails) {
+        // Se tem cache, usa ele e aborta a função (Zero requisições na API!)
+        setCategoryThumbnails((prev) => ({ ...prev, ...JSON.parse(cachedThumbnails) }));
+        return;
+      }
+
       const apiKey = process.env.NEXT_PUBLIC_GIPHY_API_KEY;
       if (!apiKey) return;
 
       const newThumbnails: Record<string, string> = {};
 
+      // 2. Se não tem cache, faz as requisições
       for (const cat of INITIAL_CATEGORIES) {
         if (cat.id === "favorites") continue;
 
@@ -51,7 +64,6 @@ export default function GifPicker({ onSendGif }: GifPickerProps) {
           const res = await fetch(endpoint);
           const data = await res.json();
           if (data.data && data.data.length > 0) {
-
             newThumbnails[cat.id] = data.data[0].images.downsized_medium.url;
           }
         } catch (error) {
@@ -59,7 +71,9 @@ export default function GifPicker({ onSendGif }: GifPickerProps) {
         }
       }
 
+      // 3. Atualiza o estado e salva no cache para as próximas vezes
       setCategoryThumbnails((prev) => ({ ...prev, ...newThumbnails }));
+      sessionStorage.setItem("@chat:category-thumbnails", JSON.stringify(newThumbnails));
     };
 
     fetchCategoryBackgrounds();
@@ -99,7 +113,6 @@ export default function GifPicker({ onSendGif }: GifPickerProps) {
       const res = await fetch(endpoint);
       const data = await res.json();
       if (data.data) {
-        // Mudamos de fixed_height_small para downsized_medium (tamanho padrão de chat grande)
         setGifs(data.data.map((g: any) => g.images.downsized_medium.url));
       }
     } catch (error) {
@@ -136,10 +149,9 @@ export default function GifPicker({ onSendGif }: GifPickerProps) {
   };
 
   return (
-    <div className="flex h-[450px] w-[420px] flex-col overflow-hidden rounded-lg border border-zinc-800 bg-[#1e1f22] shadow-2xl">
-
+    <div className="flex h-[450px] w-[420px] flex-col overflow-hidden rounded-lg border white:border-zinc-700 dark:border-zinc-800 dark:bg-[#1e1f22] white:bg-white shadow-2xl">
       <div className="flex gap-2 p-3 pb-0 text-sm font-semibold">
-        <div className="cursor-pointer rounded-md bg-[#383a40] px-3 py-1.5 text-zinc-100">
+        <div className="cursor-pointer rounded-md white:bg-[#5e5e5e]  dark:bg-[#383a40] px-3 py-1.5 dark:text-zinc-100">
           GIFs
         </div>
         <div className="cursor-not-allowed px-3 py-1.5 text-zinc-400 opacity-70">Stickers</div>
@@ -147,11 +159,11 @@ export default function GifPicker({ onSendGif }: GifPickerProps) {
       </div>
 
       <div className="p-3">
-        <div className="flex items-center rounded bg-[#111214] px-3 py-1.5 border border-[#5865F2] focus-within:ring-1 focus-within:ring-[#5865F2]">
+        <div className="flex items-center rounded dark:bg-[#111214] px-3 py-1.5 border border-[#5865F2] focus-within:ring-1 focus-within:ring-[#5865F2]">
           <Search className="mr-2 h-4 w-4 text-zinc-400" />
           <input
             type="text"
-            placeholder="Search Klipy"
+            placeholder="Search GIFs"
             className="w-full bg-transparent p-1 text-sm text-zinc-100 outline-none placeholder:text-zinc-500"
             value={searchGifTerm}
             onChange={(e) => setSearchGifTerm(e.target.value)}
@@ -167,8 +179,6 @@ export default function GifPicker({ onSendGif }: GifPickerProps) {
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 pt-0 custom-scrollbar">
-        
-
         {!activeView && (
           <div className="grid grid-cols-2 gap-3">
             {INITIAL_CATEGORIES.map((cat) => {
@@ -215,7 +225,6 @@ export default function GifPicker({ onSendGif }: GifPickerProps) {
             ) : (
               gifs.map((url, i) => (
                 <div key={i} className="group relative">
-
                   <img
                     src={url}
                     alt="GIF Result"
@@ -236,7 +245,6 @@ export default function GifPicker({ onSendGif }: GifPickerProps) {
             )}
           </div>
         )}
-
       </div>
     </div>
   );
