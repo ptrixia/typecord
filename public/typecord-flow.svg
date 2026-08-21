@@ -1,0 +1,12 @@
+<svg width="1000" height="300" viewBox="0 0 1000 300" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1000" height="300" rx="20" fill="#1C1917"/>
+  <text x="44" y="52" fill="#FAFAF9" font-family="Arial" font-size="19" font-weight="700">Como as peças do Typecord se encaixam</text>
+  <text x="44" y="78" fill="#A8A29E" font-family="Arial" font-size="13">A interface atual já aponta para uma arquitetura de comunidade completa.</text>
+  <rect x="44" y="112" width="198" height="116" rx="12" fill="#292524" stroke="#78716C"/><text x="66" y="145" fill="#FDE68A" font-family="Arial" font-size="14" font-weight="700">Interface</text><text x="66" y="171" fill="#D6D3D1" font-family="Arial" font-size="13">Navbar · Sidebar</text><text x="66" y="193" fill="#D6D3D1" font-family="Arial" font-size="13">Guild · Chat · Membros</text>
+  <path d="M254 170h64" stroke="#A8A29E" stroke-width="2"/><path d="m312 164 10 6-10 6" stroke="#A8A29E" stroke-width="2"/>
+  <rect x="330" y="112" width="198" height="116" rx="12" fill="#292524" stroke="#78716C"/><text x="352" y="145" fill="#86EFAC" font-family="Arial" font-size="14" font-weight="700">Interações locais</text><text x="352" y="171" fill="#D6D3D1" font-family="Arial" font-size="13">Tema e menus</text><text x="352" y="193" fill="#D6D3D1" font-family="Arial" font-size="13">Guilds e controles</text>
+  <path d="M540 170h64" stroke="#A8A29E" stroke-width="2"/><path d="m598 164 10 6-10 6" stroke="#A8A29E" stroke-width="2"/>
+  <rect x="616" y="112" width="154" height="116" rx="12" fill="#292524" stroke="#78716C"/><text x="638" y="145" fill="#93C5FD" font-family="Arial" font-size="14" font-weight="700">API</text><text x="638" y="171" fill="#D6D3D1" font-family="Arial" font-size="13">Próxima etapa</text><text x="638" y="193" fill="#D6D3D1" font-family="Arial" font-size="13">Rotas e tempo real</text>
+  <path d="M782 170h64" stroke="#A8A29E" stroke-width="2"/><path d="m840 164 10 6-10 6" stroke="#A8A29E" stroke-width="2"/>
+  <rect x="858" y="112" width="98" height="116" rx="12" fill="#292524" stroke="#78716C"/><text x="879" y="145" fill="#FCA5A5" font-family="Arial" font-size="14" font-weight="700">Dados</text><text x="879" y="171" fill="#D6D3D1" font-family="Arial" font-size="13">Prisma</text><text x="879" y="193" fill="#D6D3D1" font-family="Arial" font-size="13">Postgres</text>
+</svg>

@@ -1,0 +1,21 @@
+<svg width="1200" height="640" viewBox="0 0 1200 640" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="640" rx="24" fill="#F5F5F4"/>
+  <rect x="18" y="18" width="1164" height="604" rx="18" fill="#E7E5E4" stroke="#D6D3D1" stroke-width="2"/>
+  <rect x="18" y="18" width="1164" height="42" rx="18" fill="#FAFAF9"/>
+  <circle cx="1140" cy="39" r="7" fill="#A8A29E"/><circle cx="1116" cy="39" r="7" fill="#A8A29E"/><circle cx="1092" cy="39" r="7" fill="#A8A29E"/>
+  <rect x="18" y="60" width="70" height="562" fill="#FAFAF9"/>
+  <circle cx="53" cy="94" r="21" fill="#D6D3D1"/><path d="M45 94h16M53 86v16" stroke="#78716C" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="53" cy="151" r="21" fill="#A8A29E"/><text x="46" y="158" fill="#FAFAF9" font-family="Arial" font-size="18" font-weight="700">G</text>
+  <circle cx="53" cy="207" r="21" fill="#A8A29E"/><text x="46" y="214" fill="#FAFAF9" font-family="Arial" font-size="18" font-weight="700">G</text>
+  <circle cx="53" cy="263" r="21" fill="#A8A29E"/><text x="46" y="270" fill="#FAFAF9" font-family="Arial" font-size="18" font-weight="700">G</text>
+  <rect x="88" y="60" width="190" height="562" fill="#D6D3D1"/>
+  <text x="108" y="94" fill="#292524" font-family="Arial" font-size="16" font-weight="700">Nome</text>
+  <line x1="88" y1="112" x2="278" y2="112" stroke="#C7C3C0"/>
+  <rect x="100" y="132" width="166" height="34" rx="7" fill="#C7C3C0"/><text x="114" y="154" fill="#57534E" font-family="Arial" font-size="14"># nomedocanal</text>
+  <rect x="278" y="60" width="730" height="562" fill="#E7E5E4"/>
+  <rect x="278" y="60" width="730" height="52" fill="#F5F5F4"/><text x="304" y="93" fill="#292524" font-family="Arial" font-size="16" font-weight="700"># nomedocanal</text>
+  <line x1="278" y1="112" x2="1008" y2="112" stroke="#D6D3D1"/>
+  <circle cx="316" cy="157" r="17" fill="#3B82F6"/><text x="350" y="153" fill="#B91C1C" font-family="Arial" font-size="15" font-weight="700">username</text><text x="442" y="153" fill="#78716C" font-family="Arial" font-size="11">08:58 AM</text><text x="350" y="176" fill="#44403C" font-family="Arial" font-size="14">content</text>
+  <rect x="296" y="574" width="694" height="34" rx="9" fill="#F5F5F4" stroke="#D6D3D1"/><text x="316" y="596" fill="#78716C" font-family="Arial" font-size="13">Conversar em #nomedocanal</text>
+  <rect x="1008" y="60" width="174" height="562" fill="#FAFAF9"/><text x="1028" y="96" fill="#57534E" font-family="Arial" font-size="14" font-weight="700">ADMIN — 1</text><circle cx="1040" cy="130" r="14" fill="#D6D3D1"/><text x="1062" y="135" fill="#B91C1C" font-family="Arial" font-size="13">Member 1</text><text x="1028" y="190" fill="#57534E" font-family="Arial" font-size="14" font-weight="700">MODERATOR — 1</text><circle cx="1040" cy="224" r="14" fill="#D6D3D1"/><text x="1062" y="229" fill="#7C3AED" font-family="Arial" font-size="13">Member 2</text><text x="1028" y="284" fill="#57534E" font-family="Arial" font-size="14" font-weight="700">MEMBER — 1</text><circle cx="1040" cy="318" r="14" fill="#D6D3D1"/><text x="1062" y="323" fill="#78716C" font-family="Arial" font-size="13">Member 3</text>
+</svg>
