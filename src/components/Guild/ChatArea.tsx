@@ -6,6 +6,7 @@ import GifPicker from "./GifPicker";
 import EmojiPicker, { Theme } from "emoji-picker-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import VideoPlayer from "../VideoPlayer";
 
 interface Message {
     id: number;
@@ -127,7 +128,6 @@ export default function ChatArea() {
                         <div key={msg.id} className="flex w-full gap-3 rounded-md p-1 -mx-1 hover:bg-black/5 dark:hover:bg-white/5">
                             <div className={`mt-1 h-10 w-10 shrink-0 rounded-full ${msg.avatarColor}`}></div>
                             
-                            {/* A MÁGICA ACONTECE AQUI: min-w-0 flex-1 */}
                             <div className="min-w-0 flex-1">
                                 <div className="flex items-baseline gap-2">
                                     <span className={`cursor-pointer font-semibold hover:underline ${msg.authorColor}`}>
@@ -140,19 +140,55 @@ export default function ChatArea() {
                                     <ReactMarkdown
                                         remarkPlugins={[remarkGfm]}
                                         components={{
-                                            img: ({ node, ...props }) => (
-                                                <img
-                                                    {...props}
-                                                    className="mt-2 aspect-video w-full max-w-[400px] rounded-xl object-cover shadow-lg border border-zinc-200 dark:border-zinc-800"
-                                                    alt={props.alt || "Media"}
-                                                />
-                                            ),
+                                            img: ({ node, ...props }) => {
+                                                const url = props.src;
+                                                const urlString = typeof url === "string" ? url : "";
+                                                const isGif = urlString.includes("giphy") || urlString.endsWith(".gif");
+
+                                                return (
+                                                    <div className="mt-2 inline-block">
+                                                        <img
+                                                            {...props}
+                                                            src={urlString}
+                                                            className="aspect-video w-full max-w-[400px] rounded-xl object-cover shadow-lg border border-zinc-200 dark:border-zinc-800"
+                                                            alt={props.alt || "Media"}
+                                                        />
+                                                        {isGif && (
+                                                            <span className="mt-1 block text-[10px] font-bold tracking-wider text-stone-500 dark:text-zinc-400 uppercase">
+                                                                GIF
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                );
+                                            },
                                             p: ({ node, ...props }) => (
                                                 <p {...props} className="text-sm text-stone-800 dark:text-zinc-200 break-words whitespace-pre-wrap" />
                                             ),
-                                            a: ({ node, ...props }) => (
-                                                <a {...props} className="text-blue-500 hover:underline break-all" target="_blank" rel="noopener noreferrer" />
-                                            ),
+                                            // Intercepta links normais. Se for .mp4, transforma em player de vídeo customizado!
+                                            a: ({ node, ...props }) => {
+                                                const href = props.href || "";
+                                                const isVideo = href.endsWith(".mp4") || href.endsWith(".webm") || href.endsWith(".mov");
+
+                                                if (isVideo) {
+                                                    return (
+                                                        <div className="max-w-[400px] overflow-hidden rounded-xl border border-zinc-200 bg-black shadow-lg dark:border-zinc-800">
+                                                            <VideoPlayer
+                                                                src={href}
+                                   
+                                                            />
+                                                        </div>
+                                                    );
+                                                }
+
+                                                return (
+                                                    <a 
+                                                        {...props} 
+                                                        className="text-blue-500 hover:underline break-all" 
+                                                        target="_blank" 
+                                                        rel="noopener noreferrer" 
+                                                    />
+                                                );
+                                            },
                                             code: ({ node, inline, className, children, ...props }: any) => {
                                                 const match = /language-(\w+)/.exec(className || "");
                                                 const isInline = inline || !match;
