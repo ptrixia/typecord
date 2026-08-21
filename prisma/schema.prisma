@@ -1,0 +1,315 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ------------------------------------------------------
+// USUÁRIOS E RELACIONAMENTOS
+// ------------------------------------------------------
+
+enum UserStatus {
+  ONLINE
+  IDLE
+  DND       // Do Not Disturb
+  OFFLINE
+}
+
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  username      String   @unique
+  globalName    String?
+  avatarUrl     String?  @db.Text
+  bannerUrl     String?  @db.Text
+  bio           String?  @db.Text
+  status        UserStatus @default(OFFLINE)
+
+  // Relações
+  guildsOwned   Guild[]
+  memberships   Member[]
+  emojisCreated Emoji[]
+  bans          GuildBan[]
+
+  // Amizades (Autorrelacionamento)
+  friendRequestsSent     Relationship[] @relation("UserOne")
+  friendRequestsReceived Relationship[] @relation("UserTwo")
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+enum RelationshipType {
+  FRIEND
+  PENDING
+  BLOCKED
+}
+
+model Relationship {
+  id        String           @id @default(uuid())
+  type      RelationshipType
+
+  userOneId String
+  userOne   User @relation("UserOne", fields: [userOneId], references: [id], onDelete: Cascade)
+
+  userTwoId String
+  userTwo   User @relation("UserTwo", fields: [userTwoId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userOneId, userTwoId])
+  @@index([userOneId])
+  @@index([userTwoId])
+}
+
+// ------------------------------------------------------
+// GUILDS (SERVIDORES), CARGOS E MEMBROS
+// ------------------------------------------------------
+
+model Guild {
+  id          String  @id @default(uuid())
+  name        String
+  iconUrl     String? @db.Text
+  bannerUrl   String? @db.Text
+  vanityUrl   String? @unique // URL customizada de convite
+  
+  ownerId     String
+  owner       User    @relation(fields: [ownerId], references: [id])
+
+  members     Member[]
+  roles       Role[]
+  categories  Category[]
+  channels    Channel[]
+  emojis      Emoji[]
+  invites     Invite[]
+  bans        GuildBan[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([ownerId])
+}
+
+model Role {
+  id          String  @id @default(uuid())
+  name        String
+  color       String  @default("#99aab5")
+  hoist       Boolean @default(false) // Aparecer separadamente na lista de membros
+  position    Int     // Ordem hierárquica
+  permissions String  // Bitfield de permissões (ex: "8" para Administrador)
+
+  guildId     String
+  guild       Guild   @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  members     Member[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([guildId])
+}
+
+model Member {
+  id        String  @id @default(uuid())
+  nickname  String?
+  
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  guildId   String
+  guild     Guild   @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  roles     Role[]  // Relação Many-to-Many implícita
+
+  messages  Message[]
+  reactions Reaction[]
+
+  joinedAt  DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, guildId])
+  @@index([userId])
+  @@index([guildId])
+}
+
+// ------------------------------------------------------
+// ESTRUTURA DE CANAIS
+// ------------------------------------------------------
+
+model Category {
+  id        String    @id @default(uuid())
+  name      String
+  position  Int
+
+  guildId   String
+  guild     Guild     @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  channels  Channel[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([guildId])
+}
+
+enum ChannelType {
+  GUILD_TEXT
+  GUILD_VOICE
+  GUILD_VIDEO
+  GUILD_ANNOUNCEMENT
+  PUBLIC_THREAD
+  PRIVATE_THREAD
+}
+
+model Channel {
+  id          String      @id @default(uuid())
+  name        String
+  type        ChannelType
+  topic       String?     @db.Text
+  position    Int
+  nsfw        Boolean     @default(false)
+  
+  // Apenas para canais de voz
+  userLimit   Int?
+  bitrate     Int?
+
+  guildId     String
+  guild       Guild       @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  categoryId  String?
+  category    Category?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  // Para Threads (Canais filhos)
+  parentId    String?
+  parent      Channel?    @relation("ThreadParent", fields: [parentId], references: [id], onDelete: Cascade)
+  threads     Channel[]   @relation("ThreadParent")
+
+  messages    Message[]
+
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([guildId])
+  @@index([categoryId])
+  @@index([parentId])
+}
+
+// ------------------------------------------------------
+// MENSAGENS, ANEXOS E REAÇÕES
+// ------------------------------------------------------
+
+model Message {
+  id          String   @id @default(uuid())
+  content     String   @db.Text
+  deleted     Boolean  @default(false)
+  isPinned    Boolean  @default(false)
+
+  memberId    String
+  member      Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  channelId   String
+  channel     Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  // Resposta a outra mensagem
+  replyToId   String?
+  replyTo     Message? @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies     Message[] @relation("MessageReplies")
+
+  attachments Attachment[]
+  reactions   Reaction[]
+
+  createdAt   DateTime @default(now())
+  editedAt    DateTime?
+
+  @@index([channelId])
+  @@index([memberId])
+  @@index([replyToId])
+}
+
+model Attachment {
+  id          String   @id @default(uuid())
+  url         String   @db.Text
+  filename    String
+  fileSize    Int
+  fileType    String   // ex: "image/png", "video/mp4"
+
+  messageId   String
+  message     Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
+
+  @@index([messageId])
+}
+
+model Emoji {
+  id        String   @id @default(uuid())
+  name      String
+  url       String   @db.Text
+
+  guildId   String
+  guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  creatorId String
+  creator   User     @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  reactions Reaction[]
+
+  createdAt DateTime @default(now())
+
+  @@index([guildId])
+}
+
+model Reaction {
+  id        String   @id @default(uuid())
+
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  memberId  String
+  member    Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  emojiId   String?  // Pode ser nulo se for um emoji padrão do sistema (Unicode)
+  emoji     Emoji?   @relation(fields: [emojiId], references: [id], onDelete: Cascade)
+  unicode   String?  // Usado se for um emoji padrão (ex: "👍")
+
+  createdAt DateTime @default(now())
+
+  @@unique([messageId, memberId, emojiId, unicode])
+  @@index([messageId])
+}
+
+// ------------------------------------------------------
+// ADMINISTRAÇÃO
+// ------------------------------------------------------
+
+model Invite {
+  id        String   @id @default(uuid()) // O próprio ID pode ser o código (ex: "discord.gg/uuid")
+  uses      Int      @default(0)
+  maxUses   Int      @default(0) // 0 = ilimitado
+  
+  guildId   String
+  guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  expiresAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([guildId])
+}
+
+model GuildBan {
+  id        String   @id @default(uuid())
+  reason    String?  @db.Text
+
+  guildId   String
+  guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([guildId, userId])
+}
