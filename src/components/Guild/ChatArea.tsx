@@ -240,38 +240,94 @@ export default function ChatArea() {
                     </div>
                 )}
 
-                <div className="flex min-h-[44px] w-full items-end gap-3 rounded-lg bg-stone-300/50 px-4 py-2.5 dark:bg-[#383a40]">
-                    <Plus className="mb-0.5 h-5 w-5 shrink-0 cursor-pointer text-stone-500 hover:text-stone-800 dark:text-zinc-400 dark:hover:text-zinc-200" />
+               <div className="flex min-h-[44px] w-full items-center gap-3 rounded-lg bg-stone-300/50 px-3 py-2 dark:bg-[#383a40]">
+  <Plus
+    className="
+      h-5 w-5 shrink-0 cursor-pointer
+      text-stone-500
+      hover:text-stone-800
+      dark:text-zinc-400
+      dark:hover:text-zinc-200
+    "
+  />
 
-                    <textarea
-                        ref={textareaRef}
-                        value={inputValue}
-                        onChange={handleInput}
-                        onKeyDown={handleKeyDown}
-                        maxLength={800}
-                        rows={1}
-                        placeholder="Conversar em #bate-papo"
-                        className="custom-scrollbar flex-1 resize-none bg-transparent text-sm text-stone-900 outline-none placeholder:text-stone-500 dark:text-zinc-100 dark:placeholder:text-zinc-400 break-words"
-                    />
+  <textarea
+    ref={textareaRef}
+    value={inputValue}
+    onChange={handleInput}
+    onKeyDown={handleKeyDown}
+    maxLength={800}
+    rows={1}
+    placeholder="Conversar em #bate-papo"
+    className="
+      custom-scrollbar
+      flex-1
+      resize-none
+      self-center
+      bg-transparent
+      text-sm
+      leading-5
+      text-stone-900
+      outline-none
+      placeholder:text-stone-500
+      dark:text-zinc-100
+      dark:placeholder:text-zinc-400
+      break-words
+    "
+  />
 
-                    <div className="mb-0.5 flex shrink-0 items-center gap-3 text-stone-500 dark:text-zinc-400">
-                        <Gift className="h-5 w-5 cursor-pointer hover:text-stone-800 dark:hover:text-zinc-200" />
+  <div className="flex shrink-0 items-center gap-3 text-stone-500 dark:text-zinc-400">
+    <Gift
+      className="
+        h-5 w-5 cursor-pointer
+        hover:text-stone-800
+        dark:hover:text-zinc-200
+      "
+    />
 
-                        <div
-                            onClick={toggleGif}
-                            className={`flex cursor-pointer items-center justify-center rounded px-1.5 py-0.5 text-xs font-bold hover:bg-stone-300 hover:text-stone-800 dark:hover:bg-zinc-600 dark:hover:text-zinc-200 ${isGifOpen ? "bg-stone-300 text-stone-800 dark:bg-zinc-600 dark:text-zinc-200" : ""}`}
-                        >
-                            GIF
-                        </div>
+    <div
+      onClick={toggleGif}
+      className={`
+        flex cursor-pointer items-center justify-center
+        rounded px-1.5 py-0.5
+        text-xs font-bold
+        hover:bg-stone-300
+        hover:text-stone-800
+        dark:hover:bg-zinc-600
+        dark:hover:text-zinc-200
+        ${
+          isGifOpen
+            ? "bg-stone-300 text-stone-800 dark:bg-zinc-600 dark:text-zinc-200"
+            : ""
+        }
+      `}
+    >
+      GIF
+    </div>
 
-                        <StickyNote className="h-5 w-5 cursor-pointer hover:text-stone-800 dark:hover:text-zinc-200" />
+    <StickyNote
+      className="
+        h-5 w-5 cursor-pointer
+        hover:text-stone-800
+        dark:hover:text-zinc-200
+      "
+    />
 
-                        <Smile
-                            onClick={toggleEmoji}
-                            className={`h-5 w-5 cursor-pointer hover:text-stone-800 dark:hover:text-zinc-200 ${isEmojiOpen ? "text-stone-800 dark:text-zinc-200" : ""}`}
-                        />
-                    </div>
-                </div>
+    <Smile
+      onClick={toggleEmoji}
+      className={`
+        h-5 w-5 cursor-pointer
+        hover:text-stone-800
+        dark:hover:text-zinc-200
+        ${
+          isEmojiOpen
+            ? "text-stone-800 dark:text-zinc-200"
+            : ""
+        }
+      `}
+    />
+  </div>
+</div>
             </div>
         </div>
     );
