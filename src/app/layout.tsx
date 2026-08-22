@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Typecord",
-  description: "um clone do discord nao sei",
+  description: "Conversas, comunidades e conexões em um só lugar.",
 };
 
 export default function RootLayout({
@@ -15,12 +15,14 @@ export default function RootLayout({
   return (
     <html lang="pt-BR" suppressHydrationWarning>
       <body>
+        
         <ThemeProvider
           attribute="class"
           defaultTheme="system"
           enableSystem
           disableTransitionOnChange
         >
+          
           {children}
         </ThemeProvider>
       </body>

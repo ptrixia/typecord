@@ -4,7 +4,9 @@ import ChannelsSidebar from "./ChannelsSideBar"; // Ajuste o caminho conforme su
 import ChatArea from "./ChatArea";
 import MembersSidebar from "./MembersSidebar";
 
-export default function GuildLayout() {
+export default function GuildLayout({ guild, }: { guild: { id: string; name: string } }) {
+  // Aqui você pode usar os dados da guild conforme necessário
+  console.log("Guild data:", guild);
   return (
     <div className="m-1 flex w-full flex-row overflow-hidden rounded-t-3xl bg-stone-200 dark:bg-zinc-950/80">
       <ChannelsSidebar />
