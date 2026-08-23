@@ -1,23 +1,3 @@
 "use server";
-
-import { db } from "@/lib/db";
-import { getCurrentUser } from "@/lib/current-user";
-import { revalidatePath } from "next/cache";
-
-export async function createChannel(guildId: string, name: string, type: "GUILD_TEXT" | "GUILD_VOICE") {
-  const user = await getCurrentUser();
-  if (!user) throw new Error("Não autorizado");
-
-  const channel = await db.channel.create({
-    data: {
-      name: name.toLowerCase().replace(/\s+/g, "-"),
-      type,
-      guildId,
-      position: 99, 
-    },
-  });
-
-  revalidatePath(`/channels/${guildId}`);
-
-  return channel;
-}
+import { db } from '@/lib/db'; import { getCurrentUser } from '@/lib/current-user'; import { revalidatePath } from 'next/cache'; import { Permissions } from '@/lib/permissions'; import { requirePermission } from '@/lib/permissions.server';
+export async function createChannel(guildId:string,name:string,type:'GUILD_TEXT'|'GUILD_VOICE'){const u=await requirePermission(guildId,Permissions.MANAGE_CHANNELS);const n=name.trim().toLowerCase().replace(/\s+/g,'-').replace(/[^\p{L}\p{N}_-]/gu,'').slice(0,100);if(!n)throw new Error('Nome de canal inválido.');const max=await db.channel.aggregate({where:{guildId},_max:{position:true}});const c=await db.channel.create({data:{guildId,name:n,type,position:(max._max.position??-1)+1}});await db.auditLog.create({data:{guildId,actorId:u.id,action:'CHANNEL_CREATE',targetId:c.id,metadata:{name:n,type}}});revalidatePath(`/channels/${guildId}`);return c;}

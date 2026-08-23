@@ -30,6 +30,6 @@ export default function DirectMessageMembers({
 }: Props) {
   return (
     
-<MembersSidebar></MembersSidebar>
+<MembersSidebar members={members} />
   );
 }

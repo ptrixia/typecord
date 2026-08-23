@@ -28,13 +28,13 @@ model User {
   bio          String?    @db.Text
   status       UserStatus @default(OFFLINE)
 
-  // Relações
   guildsOwned   Guild[]
   memberships   Member[]
   emojisCreated Emoji[]
   bans          GuildBan[]
 
-  // Amizades (Autorrelacionamento)
+  invitesCreated Invite[]
+
   friendRequestsSent     Relationship[] @relation("UserOne")
   friendRequestsReceived Relationship[] @relation("UserTwo")
 
@@ -138,19 +138,25 @@ model Role {
   id          String  @id @default(uuid())
   name        String
   color       String  @default("#99aab5")
-  hoist       Boolean @default(false) // Aparecer separadamente na lista de membros
-  position    Int // Ordem hierárquica
-  permissions String // Bitfield de permissões (ex: "8" para Administrador)
+  hoist       Boolean @default(false)
+  position    Int
+  permissions String  @default("0")
+
+  managed   Boolean @default(false)
+  isDefault Boolean @default(false)
 
   guildId String
   guild   Guild  @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   members Member[]
 
+  permissionOverwrites PermissionOverwrite[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([guildId])
+  @@index([guildId, position])
 }
 
 model Member {
@@ -163,7 +169,8 @@ model Member {
   guildId String
   guild   Guild  @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
-  roles Role[] // Relação Many-to-Many implícita
+  roles                Role[] // Relação Many-to-Many implícita
+  permissionOverwrites PermissionOverwrite[]
 
   messages  Message[]
   reactions Reaction[]
@@ -213,7 +220,6 @@ model Channel {
   position Int
   nsfw     Boolean     @default(false)
 
-  // Apenas para canais de voz
   userLimit Int?
   bitrate   Int?
 
@@ -223,12 +229,12 @@ model Channel {
   categoryId String?
   category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
 
-  // Para Threads (Canais filhos)
   parentId String?
   parent   Channel?  @relation("ThreadParent", fields: [parentId], references: [id], onDelete: Cascade)
   threads  Channel[] @relation("ThreadParent")
 
-  messages Message[]
+  messages             Message[]
+  permissionOverwrites PermissionOverwrite[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -327,17 +333,23 @@ model Reaction {
 // ------------------------------------------------------
 
 model Invite {
-  id      String @id @default(uuid()) // O próprio ID pode ser o código (ex: "discord.gg/uuid")
-  uses    Int    @default(0)
-  maxUses Int    @default(0) // 0 = ilimitado
+  id        String   @id @default(uuid())
+  code      String   @unique
 
-  guildId String
-  guild   Guild  @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  uses      Int      @default(0)
+  maxUses   Int      @default(0)
+
+  guildId   String
+  guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  creatorId String?
+  creator   User?    @relation(fields: [creatorId], references: [id], onDelete: SetNull)
 
   expiresAt DateTime?
-  createdAt DateTime  @default(now())
+  createdAt DateTime @default(now())
 
   @@index([guildId])
+  @@index([creatorId])
 }
 
 model GuildBan {
@@ -353,4 +365,33 @@ model GuildBan {
   createdAt DateTime @default(now())
 
   @@unique([guildId, userId])
+}
+
+model PermissionOverwrite {
+  id        String  @id @default(uuid())
+  channelId String
+  channel   Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  roleId    String?
+  role      Role?   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  memberId  String?
+  member    Member? @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  allow     String  @default("0")
+  deny      String  @default("0")
+
+  @@unique([channelId, roleId])
+  @@unique([channelId, memberId])
+  @@index([channelId])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  guildId   String
+  actorId   String
+  action    String
+  targetId  String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([guildId])
+  @@index([actorId])
 }
