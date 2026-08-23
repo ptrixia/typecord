@@ -63,6 +63,7 @@ Neste momento, a aplicação funciona como um protótipo de interface: já é po
 - npm 10 ou superior.
 - Git.
 - PostgreSQL apenas quando a camada de persistência começar a ser usada.
+- Redis em execução na porta padrão `6379`, localmente ou em um serviço hospedado.
 
 ### Instalação
 
@@ -77,7 +78,16 @@ Crie um arquivo `.env.local` para as integrações locais. Nunca publique chaves
 ```env
 NEXT_PUBLIC_GIPHY_API_KEY=sua-chave-do-giphy
 DATABASE_URL=postgresql://usuario:senha@localhost:5432/typecord
+REDIS_URL=redis://localhost:6379
 ```
+
+O Typecord usa Redis para recursos em tempo real. Para executar uma instância local com Docker, use:
+
+```bash
+docker run --name typecord-redis -p 6379:6379 -d redis:7-alpine
+```
+
+Esse comando disponibiliza o Redis em `localhost:6379`, endereço usado por padrão pela aplicação. Se o Redis estiver hospedado em outro endereço, informe a URL correspondente em `REDIS_URL`, por exemplo `redis://usuario:senha@host:6379`.
 
 Inicie o ambiente de desenvolvimento:
 
