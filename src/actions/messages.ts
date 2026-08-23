@@ -29,15 +29,21 @@ export async function getMessages(channelId: string) {
             take: 50,
         });
 
-        return messages.map((msg) => ({
-            id: msg.id,
-            author: msg.member.nickname || msg.member.user.globalName || msg.member.user.username,
-            authorColor: "text-stone-700 dark:text-zinc-200", 
-            avatarColor: "bg-indigo-500", 
-            avatarUrl: msg.member.user.avatarUrl,
-            time: msg.createdAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
-            content: msg.content,
-        }));
+        return messages.map((msg) => {
+
+    const isWebhookMessage = msg.member.user.email === "webhook@typecord.bot";
+
+    return {
+        id: msg.id,
+        author: msg.member.nickname || msg.member.user.globalName || msg.member.user.username,
+        authorColor: isWebhookMessage ? "text-rose-500" : "text-stone-700 dark:text-zinc-200", 
+        avatarColor: isWebhookMessage ? "bg-rose-600" : "bg-indigo-500", 
+        avatarUrl: msg.member.user.avatarUrl,
+        time: msg.createdAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+        content: msg.content,
+        isWebhook: isWebhookMessage 
+    };
+});
     } catch (error) {
         console.error("[GET_MESSAGES_ERROR]", error);
         return [];

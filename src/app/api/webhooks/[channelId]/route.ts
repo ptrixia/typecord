@@ -4,14 +4,12 @@ import { pusherServer } from "@/lib/pusher";
 
 export async function POST(
   req: Request,
-  { params }: { params: { channelId: string } }
+  props: { params: Promise<{ channelId: string }> | { channelId: string } }
 ) {
   try {
 
-    const authHeader = req.headers.get("authorization");
-    if (authHeader !== `Bearer ${process.env.WEBHOOK_SECRET}`) {
-      return new NextResponse("Não autorizado.", { status: 401 });
-    }
+    const params = await props.params;
+    const channelId = params.channelId;
 
     const body = await req.json();
     const { content, botName, avatarUrl } = body;
@@ -21,7 +19,7 @@ export async function POST(
     }
 
     const channel = await db.channel.findUnique({
-      where: { id: params.channelId },
+      where: { id: channelId },
     });
 
     if (!channel) {
@@ -56,22 +54,20 @@ export async function POST(
         data: {
           userId: systemUser.id,
           guildId: channel.guildId,
-          nickname: botName || "Bot",
+          nickname: botName || "Webhook",
         },
       });
     } else if (botName && botMember.nickname !== botName) {
-
       botMember = await db.member.update({
         where: { id: botMember.id },
         data: { nickname: botName },
       });
     }
 
-
     const newMessage = await db.message.create({
       data: {
         content: content,
-        channelId: params.channelId,
+        channelId: channelId,
         memberId: botMember.id,
       },
     });
@@ -81,18 +77,25 @@ export async function POST(
       author: botName || botMember.nickname || systemUser.globalName,
       authorColor: "text-rose-500", 
       avatarColor: "bg-rose-600",
-      avatarUrl: avatarUrl || "https://ui-avatars.com/api/?name=B+O+T&background=e11d48&color=fff",
+      avatarUrl: avatarUrl || "https://ui-avatars.com/api/?name=W+H&background=e11d48&color=fff",
       time: newMessage.createdAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
       content: newMessage.content,
+      isWebhook: true,
     };
 
-
-    await pusherServer.trigger(`channel-${params.channelId}`, "new-message", formattedMessage);
+    await pusherServer.trigger(`channel-${channelId}`, "new-message", formattedMessage);
 
     return NextResponse.json({ success: true, message: formattedMessage });
 
   } catch (error) {
-    console.error("[WEBHOOK_POST]", error);
-    return new NextResponse("Erro interno do servidor", { status: 500 });
+
+    console.error("[WEBHOOK_POST_DETALHADO]", error);
+    
+    const errorMessage = error instanceof Error ? error.message : "Erro desconhecido";
+    
+    return NextResponse.json(
+      { success: false, error: errorMessage }, 
+      { status: 500 }
+    );
   }
 }

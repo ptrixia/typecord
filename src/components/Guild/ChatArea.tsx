@@ -21,6 +21,7 @@ interface Message {
     time: string;
     content: string;
     isPending?: boolean;
+    isWebhook?: boolean;
 }
 
 interface ChatAreaProps {
@@ -308,12 +309,23 @@ export default function ChatArea({ channel, currentUser }: ChatAreaProps) {
                                             </div>
                                         )}
 
-                                        <div className="flex items-baseline gap-2">
+                                        {/* ============================================== */}
+                                        {/* RENDERIZA O NOME, A TAG DE WEBHOOK E A HORA    */}
+                                        {/* ============================================== */}
+                                        <div className="flex items-center gap-2">
                                             <span className={`cursor-pointer font-semibold hover:underline ${msg.authorColor}`}>
                                                 {msg.author}
                                             </span>
+                                            
+                                            {msg.isWebhook && (
+                                                <span className="rounded bg-indigo-500 px-1.5 py-0.5 text-[10px] font-bold tracking-wide uppercase text-white shadow-sm dark:bg-[#5865F2]">
+                                                    Webhook
+                                                </span>
+                                            )}
+
                                             <span className="text-xs text-stone-500">{msg.time}</span>
                                         </div>
+
                                         <div className="mt-1 w-full break-words">
                                             <ReactMarkdown
                                                 remarkPlugins={[remarkGfm]}

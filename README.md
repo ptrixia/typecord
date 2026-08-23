@@ -96,6 +96,61 @@ Abra [http://localhost:3000](http://localhost:3000) no navegador.
 | `npm run start` | Executa a versão de produção já compilada. |
 | `npm run lint` | Verifica problemas de qualidade e estilo no código. |
 
+## Webhooks
+
+Webhooks permitem publicar uma mensagem em um canal sem abrir a interface do Typecord. A rota aceita requisições `POST` no formato `/api/webhooks/[channelId]`, em que `channelId` é o ID do canal de destino.
+
+### Corpo da requisição
+
+Envie um objeto JSON com os seguintes campos:
+
+| Campo | Obrigatório | Descrição |
+| --- | --- | --- |
+| `content` | Sim | Texto da mensagem enviada pelo webhook. |
+| `botName` | Não | Nome exibido para o bot. O padrão é `Webhook`. |
+| `avatarUrl` | Não | URL da imagem exibida como avatar. |
+
+Exemplo usando `fetch`:
+
+```js
+fetch("http://localhost:3000/api/webhooks/468ae58e-0d41-4a04-b888-451a8676e8cf", {
+	method: "POST",
+	headers: {
+		"Content-Type": "application/json"
+	},
+	body: JSON.stringify({
+		content: "WEBHOOK_TEST",
+		botName: "WEBHOOK_TESTE",
+		avatarUrl: ""
+	})
+})
+	.then((res) => res.json())
+	.then(console.log);
+```
+
+O mesmo envio usando `curl`:
+
+```bash
+curl -X POST http://localhost:3000/api/webhooks/468ae58e-0d41-4a04-b888-451a8676e8cf \
+	-H "Content-Type: application/json" \
+	-d '{"content":"WEBHOOK_TEST","botName":"WEBHOOK_TESTE","avatarUrl":""}'
+```
+
+Em caso de sucesso, a API retorna `200` com `success: true` e os dados da mensagem criada:
+
+```json
+{
+	"success": true,
+	"message": {
+		"content": "WEBHOOK_TEST",
+		"author": "WEBHOOK_TESTE",
+		"isWebhook": true
+	}
+}
+```
+
+Se `content` não for enviado, a resposta será `400`. Para um `channelId` inexistente, a resposta será `404`. Outros erros inesperados retornam `500` com uma mensagem no campo `error`.
+
 ## Estrutura do projeto
 
 ```text
