@@ -108,12 +108,12 @@ export default function MembersSidebar({ members }: { members: any[] }) {
                   >
                     <div className="relative shrink-0">
                       <img
-                        src={member.user.avatarUrl || "https://placehold.co/256"}
-                        alt={member.user.username}
+                        src={member?.user?.avatarUrl || "https://placehold.co/256"}
+                        alt={member?.user?.username}
                         className="h-8 w-8 rounded-full object-cover"
                       />
                       <span
-                        className={`absolute bottom-[-1px] right-[-1px] h-2.5 w-2.5 rounded-full border-2 border-white dark:border-[#111214] ${getStatusColor(member.user.status)}`}
+                        className={`absolute bottom-[-1px] right-[-1px] h-2.5 w-2.5 rounded-full border-2 border-white dark:border-[#111214] ${getStatusColor(member.user?.status)}`}
                       />
                     </div>
                     <span
@@ -121,7 +121,7 @@ export default function MembersSidebar({ members }: { members: any[] }) {
                       style={{ color: role.color || undefined }}
                     >
                       {/* Mostra o GlobalName, se não tiver, cai pro Username */}
-                      {member.user.globalName || member.user.username}
+                      {member?.user?.globalName || member?.user?.username}
                     </span>
                   </div>
                 ))}
@@ -153,8 +153,8 @@ export default function MembersSidebar({ members }: { members: any[] }) {
             <div className="absolute left-4 -top-12">
               <div className="relative">
                 <img
-                  src={selectedMember.user.avatarUrl || "https://placehold.co/256"}
-                  alt={selectedMember.user.username}
+                  src={selectedMember.user?.avatarUrl || "https://placehold.co/256"}
+                  alt={selectedMember.user?.username}
                   className="h-20 w-20 rounded-full border-[6px] border-white bg-stone-200 object-cover dark:border-[#111214] dark:bg-zinc-800"
                 />
                 <span className={`absolute bottom-1 right-1 h-5 w-5 rounded-full border-[4px] border-white dark:border-[#111214] ${getStatusColor(selectedMember.user.status)}`} />
@@ -164,7 +164,7 @@ export default function MembersSidebar({ members }: { members: any[] }) {
             <div className="pt-12">
               <div className="flex items-center gap-2">
                 <h2 className="truncate text-xl font-bold text-stone-900 dark:text-white">
-                  {selectedMember.user.globalName || selectedMember.user.username}
+                  {selectedMember.user?.globalName || selectedMember.user?.username}
                 </h2>
                 <button type="button" className="shrink-0 text-stone-400 transition-colors hover:text-stone-700 dark:text-zinc-500 dark:hover:text-white">
                   <MoreHorizontal className="h-5 w-5" />

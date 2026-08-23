@@ -88,6 +88,8 @@ export async function POST(request: Request) {
         email: normalizedEmail,
         passwordHash,
         globalName: username,
+        avatarUrl: null,
+        bannerUrl: null,
       },
 
       select: {
@@ -97,6 +99,7 @@ export async function POST(request: Request) {
         globalName: true,
         avatarUrl: true,
         createdAt: true,
+        bannerUrl: true,
       },
     });
 

@@ -2,7 +2,7 @@
 
 import crypto from "crypto";
 import { revalidatePath } from "next/cache";
-
+import { redis } from "@/lib/redis";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/current-user";
 import { Permissions } from "@/lib/permissions";
@@ -57,17 +57,11 @@ export async function acceptGuildInvite(code: string) {
       throw new Error("INVITE_NOT_FOUND");
     }
 
-    if (
-      invite.expiresAt &&
-      invite.expiresAt.getTime() <= Date.now()
-    ) {
+    if (invite.expiresAt && invite.expiresAt.getTime() <= Date.now()) {
       throw new Error("INVITE_EXPIRED");
     }
 
-    if (
-      invite.maxUses > 0 &&
-      invite.uses >= invite.maxUses
-    ) {
+    if (invite.maxUses > 0 && invite.uses >= invite.maxUses) {
       throw new Error("INVITE_EXHAUSTED");
     }
 
@@ -90,7 +84,8 @@ export async function acceptGuildInvite(code: string) {
       };
     }
 
-    const everyoneRole = await tx.role.findFirst({
+    // Buscamos o cargo padrão
+    let everyoneRole = await tx.role.findFirst({
       where: {
         guildId: invite.guildId,
         isDefault: true,
@@ -100,15 +95,27 @@ export async function acceptGuildInvite(code: string) {
       },
     });
 
+    // FAILSAFE: Se o cargo padrão não existir, nós criamos ele na hora pra não quebrar a aplicação!
     if (!everyoneRole) {
-      throw new Error("DEFAULT_ROLE_NOT_FOUND");
+      everyoneRole = await tx.role.create({
+        data: {
+          name: "@everyone",
+          position: 0,
+          isDefault: true,
+          permissions: "0", // Permissões base
+          guildId: invite.guildId,
+        },
+        select: {
+          id: true,
+        },
+      });
     }
 
+    // Agora sim, criamos o membro conectando ele ao cargo de forma segura
     await tx.member.create({
       data: {
         userId: user.id,
         guildId: invite.guildId,
-
         roles: {
           connect: {
             id: everyoneRole.id,
@@ -127,6 +134,8 @@ export async function acceptGuildInvite(code: string) {
         },
       },
     });
+
+    await redis.del(`user:${user.id}:guilds`);
 
     return {
       alreadyMember: false,
