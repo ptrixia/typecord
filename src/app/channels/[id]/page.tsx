@@ -3,9 +3,8 @@ import Sidebar from "@/components/Sidebar/index";
 import DirectMessagesLayout from "@/components/DirectMessages/DirectMessagesLayout";
 import EmptyChannel from "@/components/Channels/EmptyChannel";
 import GuildLayout from "@/components/Guild/GuildLayout";
-import SearchCommand from "@/components/SearchCommand";
 import { getGuildById } from "@/actions/guilds";
-import { getCurrentUser } from "@/lib/current-user"; // <--- Importa aqui no servidor
+import { getCurrentUser } from "@/lib/current-user"; 
 
 interface ChannelsPageProps {
   params: Promise<{ id: string }>;
@@ -16,7 +15,6 @@ export default async function ChannelsPage({ params }: ChannelsPageProps) {
   const id = resolvedParams.id;
   const isDirectMessages = id === "%40me";
 
-  // 1. Busca o usuário atual diretamente no servidor (Seguro)
   const currentUser = await getCurrentUser();
 
   let currentGuild = null;
@@ -24,8 +22,7 @@ export default async function ChannelsPage({ params }: ChannelsPageProps) {
 
   if (!isDirectMessages) {
     currentGuild = await getGuildById(id);
-    
-    // 2. Encontra o membro logado dentro da lista de membros da guild
+
     if (currentGuild && currentUser) {
       currentMember = currentGuild.members.find(
         (m: any) => m.userId === currentUser.id
@@ -36,7 +33,6 @@ export default async function ChannelsPage({ params }: ChannelsPageProps) {
   return (
     <div className="flex h-screen flex-col overflow-hidden">
       <Navbar />
-      <SearchCommand />
 
       <div className="flex min-h-0 flex-1 overflow-hidden bg-zinc-50 dark:bg-black">
         <Sidebar />
@@ -44,7 +40,6 @@ export default async function ChannelsPage({ params }: ChannelsPageProps) {
         {isDirectMessages ? (
           <DirectMessagesLayout />
         ) : currentGuild ? (
-          // 3. Passa o currentMember via prop para o layout
           <GuildLayout guild={currentGuild} currentMember={currentMember} />
         ) : (
           <EmptyChannel />

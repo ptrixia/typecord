@@ -6,16 +6,25 @@ import { useRouter } from "next/navigation";
 import UserProfileSideBar from "../UserProfileSideBar";
 import Modal from "../Modal";
 import { createChannel } from "@/actions/channels";
-import GuildSettingsModal from "./GuildSettingsModal"; // O novo modal
+import GuildSettingsModal from "./GuildSettingsModal";
 
 interface ChannelsSidebarProps {
   guild: any;
   activeChannel: any;
   onSelectChannel: (channel: any) => void;
-  currentMember: any; // Precisamos do usuário logado para verificar permissões!
+  activeVoiceChannel?: any;
+  onJoinVoice?: (channel: any, token: string) => void;
+  currentMember: any;
 }
 
-export default function ChannelsSidebar({ guild, activeChannel, onSelectChannel, currentMember }: ChannelsSidebarProps) {
+export default function ChannelsSidebar({
+  guild,
+  activeChannel,
+  onSelectChannel,
+  activeVoiceChannel,
+  onJoinVoice,
+  currentMember,
+}: ChannelsSidebarProps) {
   const router = useRouter();
   
   // Modais e Menus
@@ -42,7 +51,6 @@ export default function ChannelsSidebar({ guild, activeChannel, onSelectChannel,
   }, []);
 
   // VERIFICAÇÃO DE PERMISSÕES
-  // O usuário pode gerenciar canais se for o dono OU se algum de seus cargos tiver a permissão
   const isOwner = guild.ownerId === currentMember?.userId;
   const hasAdminRole = currentMember?.roles?.some((r: any) => 
     r.permissions.includes("8") || r.permissions.includes("ADMIN") || r.permissions.includes("MANAGE_CHANNELS")
@@ -61,6 +69,25 @@ export default function ChannelsSidebar({ guild, activeChannel, onSelectChannel,
       console.error("Erro ao criar canal:", error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleChannelClick = async (channel: any) => {
+    if (channel.type === "GUILD_VOICE") {
+      try {
+        const response = await fetch(`/api/livekit?roomName=${channel.id}`);
+        const data = await response.json();
+
+        if (data.token && onJoinVoice) {
+          onJoinVoice(channel, data.token);
+        } else {
+          alert("Não foi possível conectar ao canal de voz.");
+        }
+      } catch (error) {
+        console.error("Erro ao conectar na voz:", error);
+      }
+    } else {
+      onSelectChannel(channel);
     }
   };
 
@@ -131,7 +158,6 @@ export default function ChannelsSidebar({ guild, activeChannel, onSelectChannel,
               Canais
             </span>
             
-            {/* O BOTÃO '+' SÓ APARECE SE O USUÁRIO TIVER PERMISSÃO */}
             {canManageChannels && (
               <button 
                 onClick={() => setIsCreateChannelModalOpen(true)}
@@ -145,13 +171,16 @@ export default function ChannelsSidebar({ guild, activeChannel, onSelectChannel,
 
           <div className="mb-4 space-y-0.5 mt-1">
             {guild.channels?.map((channel: any) => {
-              const isActive = activeChannel?.id === channel.id;
               const isVoice = channel.type === "GUILD_VOICE";
+              // Destaca o canal corretamente dependendo se é voz ou texto
+              const isActive = isVoice 
+                ? activeVoiceChannel?.id === channel.id 
+                : activeChannel?.id === channel.id;
 
               return (
                 <div
                   key={channel.id}
-                  onClick={() => onSelectChannel(channel)}
+                  onClick={() => handleChannelClick(channel)}
                   className={`
                     flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition-colors
                     ${isActive 
@@ -160,7 +189,7 @@ export default function ChannelsSidebar({ guild, activeChannel, onSelectChannel,
                     }
                   `}
                 >
-                  {isVoice ? <Volume2 className="h-4 w-4 shrink-0" /> : <Hash className="h-4 w-4 shrink-0" />}
+                  {isVoice ? <Volume2 className="h-4 w-4 shrink-0 text-emerald-500" /> : <Hash className="h-4 w-4 shrink-0" />}
                   <span className="truncate text-sm font-medium">{channel.name}</span>
                 </div>
               );
@@ -168,14 +197,11 @@ export default function ChannelsSidebar({ guild, activeChannel, onSelectChannel,
           </div>
         </div>
 
-       <UserProfileSideBar
-  user={currentMember?.user ?? null}
-/>
+        <UserProfileSideBar user={currentMember?.user ?? null} />
       </div>
 
       {/* MODAL PEQUENO: CRIAR CANAL */}
       <Modal isOpen={isCreateChannelModalOpen} onClose={() => setIsCreateChannelModalOpen(false)} title="Criar Canal">
-        {/* ... (Mesmo código do Modal de criar canal de texto/voz que enviei na resposta anterior) ... */}
         <div className="space-y-4">
           <div className="space-y-2">
             <label className="text-xs font-bold uppercase text-zinc-600 dark:text-zinc-400">Tipo de Canal</label>

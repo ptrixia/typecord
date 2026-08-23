@@ -14,6 +14,7 @@ import {
 
 import { useEffect, useRef, useState } from "react";
 import Modal from "@/components/Modal";
+import { updateUserProfile } from "@/actions/user";
 
 type UserStatus = "online" | "ausente" | "ocupado" | "invisivel";
 
@@ -122,30 +123,28 @@ export default function UserProfileContent({
   const [isDeafened, setIsDeafened] = useState(false);
 
   const [status, setStatus] = useState<UserStatus>("online");
-
-  const [customStatus, setCustomStatus] = useState(
-    "Desenvolvendo aplicações",
-  );
-
+  const [customStatus, setCustomStatus] = useState("Desenvolvendo aplicações");
   const [editingStatus, setEditingStatus] = useState(false);
 
   const menuRef = useRef<HTMLDivElement>(null);
 
+  // Estados locais para edição do perfil
+  const [editGlobalName, setEditGlobalName] = useState(user?.globalName || "");
+  const [editAvatarUrl, setEditAvatarUrl] = useState(user?.avatarUrl || "");
+  const [editBannerUrl, setEditBannerUrl] = useState(user?.bannerUrl || "");
+  const [editBio, setEditBio] = useState(user?.bio || "");
+  const [isSaving, setIsSaving] = useState(false);
+
   const username = user?.username || "usuario";
   const displayName = user?.globalName || username;
-
   const avatar = user?.avatarUrl || null;
   const banner = user?.bannerUrl || null;
   const bio = user?.bio || null;
   const userId = user?.id || "";
 
   const currentStatus =
-    statusOptions.find((item) => item.id === status) ??
-    statusOptions[0];
+    statusOptions.find((item) => item.id === status) ?? statusOptions[0];
 
-  /*
-   * Fecha o menu ao clicar fora.
-   */
   useEffect(() => {
     function handlePointerDown(event: PointerEvent) {
       const target = event.target;
@@ -164,22 +163,15 @@ export default function UserProfileContent({
     document.addEventListener("pointerdown", handlePointerDown);
 
     return () => {
-      document.removeEventListener(
-        "pointerdown",
-        handlePointerDown,
-      );
+      document.removeEventListener("pointerdown", handlePointerDown);
     };
   }, []);
 
   function getInitials(name: string) {
     const clean = name.trim();
-
-    if (!clean) {
-      return "U";
-    }
+    if (!clean) return "U";
 
     const parts = clean.split(/\s+/);
-
     if (parts.length >= 2) {
       return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
     }
@@ -194,9 +186,7 @@ export default function UserProfileContent({
   }
 
   function toggleStatusMenu() {
-    setSubmenu((current) =>
-      current === "status" ? null : "status",
-    );
+    setSubmenu((current) => (current === "status" ? null : "status"));
   }
 
   function selectStatus(value: UserStatus) {
@@ -205,10 +195,7 @@ export default function UserProfileContent({
   }
 
   async function copyUserId() {
-    if (!userId) {
-      return;
-    }
-
+    if (!userId) return;
     try {
       await navigator.clipboard.writeText(userId);
     } catch {
@@ -226,12 +213,29 @@ export default function UserProfileContent({
     window.location.href = "/api/auth/signout";
   }
 
+  async function handleSaveProfile() {
+    setIsSaving(true);
+    try {
+      await updateUserProfile({
+        globalName: editGlobalName,
+        avatarUrl: editAvatarUrl,
+        bannerUrl: editBannerUrl,
+        bio: editBio,
+      });
+      
+      setEditProfileModalOpen(false);
+      window.location.reload();
+    } catch (error) {
+      console.error("Erro ao salvar perfil", error);
+      alert("Não foi possível salvar o perfil.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   return (
     <>
-      {/* ========================================================= */}
-      {/* BARRA DO USUÁRIO                                          */}
-      {/* ========================================================= */}
-
+      {/* BARRA DO USUÁRIO */}
       <div
         ref={menuRef}
         className="
@@ -242,8 +246,6 @@ export default function UserProfileContent({
           dark:bg-[#1e1f22]
         "
       >
-        {/* PERFIL */}
-
         <button
           type="button"
           onClick={toggleMenu}
@@ -256,20 +258,9 @@ export default function UserProfileContent({
           "
         >
           <div className="relative shrink-0">
-            <div
-              className="
-                flex h-8 w-8 items-center justify-center
-                overflow-hidden rounded-full
-                bg-indigo-500
-                text-xs font-bold text-white
-              "
-            >
+            <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-indigo-500 text-xs font-bold text-white">
               {avatar ? (
-                <img
-                  src={avatar}
-                  alt={displayName}
-                  className="h-full w-full object-cover"
-                />
+                <img src={avatar} alt={displayName} className="h-full w-full object-cover" />
               ) : (
                 getInitials(displayName)
               )}
@@ -290,14 +281,11 @@ export default function UserProfileContent({
             <div className="truncate text-[13px] font-semibold leading-tight text-stone-900 dark:text-white">
               {displayName}
             </div>
-
             <div className="truncate text-[11px] leading-tight text-stone-500 dark:text-zinc-400">
               {customStatus || "Disponível"}
             </div>
           </div>
         </button>
-
-        {/* CONTROLES */}
 
         <div className="ml-1 flex items-center">
           <button
@@ -305,8 +293,7 @@ export default function UserProfileContent({
             title={isMuted ? "Ativar microfone" : "Silenciar"}
             onClick={() => setIsMuted((value) => !value)}
             className={[
-              "flex h-8 w-8 items-center justify-center rounded-md",
-              "transition-colors",
+              "flex h-8 w-8 items-center justify-center rounded-md transition-colors",
               isMuted
                 ? "text-red-400 hover:bg-red-500/10"
                 : "text-stone-600 hover:bg-stone-400/40 hover:text-stone-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white",
@@ -317,17 +304,10 @@ export default function UserProfileContent({
 
           <button
             type="button"
-            title={
-              isDeafened
-                ? "Ativar áudio"
-                : "Desativar áudio"
-            }
-            onClick={() =>
-              setIsDeafened((value) => !value)
-            }
+            title={isDeafened ? "Ativar áudio" : "Desativar áudio"}
+            onClick={() => setIsDeafened((value) => !value)}
             className={[
-              "flex h-8 w-8 items-center justify-center rounded-md",
-              "transition-colors",
+              "flex h-8 w-8 items-center justify-center rounded-md transition-colors",
               isDeafened
                 ? "text-red-400 hover:bg-red-500/10"
                 : "text-stone-600 hover:bg-stone-400/40 hover:text-stone-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white",
@@ -343,63 +323,25 @@ export default function UserProfileContent({
               closeMenu();
               setEditProfileModalOpen(true);
             }}
-            className="
-              flex h-8 w-8 items-center justify-center
-              rounded-md text-stone-600
-              transition-colors
-              hover:bg-stone-400/40
-              hover:text-stone-900
-              dark:text-zinc-400
-              dark:hover:bg-zinc-800
-              dark:hover:text-white
-            "
+            className="flex h-8 w-8 items-center justify-center rounded-md text-stone-600 transition-colors hover:bg-stone-400/40 hover:text-stone-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white"
           >
             <Settings className="h-[18px] w-[18px]" />
           </button>
         </div>
 
-        {/* ======================================================= */}
-        {/* MENU PRINCIPAL                                          */}
-        {/* ======================================================= */}
-
+        {/* MENU PRINCIPAL */}
         {menuOpen && (
-          <div
-            className="
-              absolute bottom-[66px] left-1
-              z-[100]
-              w-[calc(100%-8px)]
-              rounded-lg
-              border border-stone-300
-              bg-white p-1.5
-              shadow-2xl
-              dark:border-zinc-800
-              dark:bg-[#111214]
-            "
-          >
-            {/* CABEÇALHO */}
-
+          <div className="absolute bottom-[66px] left-1 z-[100] w-[calc(100%-8px)] rounded-lg border border-stone-300 bg-white p-1.5 shadow-2xl dark:border-zinc-800 dark:bg-[#111214]">
             <div className="mb-1 rounded-md bg-stone-100 p-3 dark:bg-[#18191c]">
               <div className="flex items-center gap-3">
                 <div className="relative shrink-0">
-                  <div
-                    className="
-                      flex h-12 w-12 items-center justify-center
-                      overflow-hidden rounded-full
-                      bg-indigo-500
-                      text-sm font-bold text-white
-                    "
-                  >
+                  <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-indigo-500 text-sm font-bold text-white">
                     {avatar ? (
-                      <img
-                        src={avatar}
-                        alt={displayName}
-                        className="h-full w-full object-cover"
-                      />
+                      <img src={avatar} alt={displayName} className="h-full w-full object-cover" />
                     ) : (
                       getInitials(displayName)
                     )}
                   </div>
-
                   <span
                     className={[
                       "absolute bottom-0 right-0",
@@ -415,14 +357,11 @@ export default function UserProfileContent({
                   <div className="truncate text-sm font-bold text-stone-900 dark:text-white">
                     {displayName}
                   </div>
-
                   <div className="truncate text-xs text-stone-500 dark:text-zinc-400">
                     @{username}
                   </div>
                 </div>
               </div>
-
-              {/* STATUS PERSONALIZADO */}
 
               {editingStatus ? (
                 <input
@@ -430,77 +369,34 @@ export default function UserProfileContent({
                   value={customStatus}
                   maxLength={128}
                   autoFocus
-                  onChange={(event) =>
-                    setCustomStatus(event.target.value)
-                  }
+                  onChange={(event) => setCustomStatus(event.target.value)}
                   onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      setEditingStatus(false);
-                    }
-
-                    if (event.key === "Escape") {
+                    if (event.key === "Enter" || event.key === "Escape") {
                       setEditingStatus(false);
                     }
                   }}
-                  onBlur={() =>
-                    setEditingStatus(false)
-                  }
+                  onBlur={() => setEditingStatus(false)}
                   placeholder="O que você está fazendo?"
-                  className="
-                    mt-3 w-full rounded-md
-                    border border-stone-300
-                    bg-white px-2.5 py-1.5
-                    text-xs text-stone-900
-                    outline-none
-                    focus:border-indigo-500
-                    dark:border-zinc-700
-                    dark:bg-[#232428]
-                    dark:text-white
-                  "
+                  className="mt-3 w-full rounded-md border border-stone-300 bg-white px-2.5 py-1.5 text-xs text-stone-900 outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-[#232428] dark:text-white"
                 />
               ) : (
                 <button
                   type="button"
-                  onClick={() =>
-                    setEditingStatus(true)
-                  }
-                  className="
-                    mt-3 flex w-full items-center gap-2
-                    rounded-md border
-                    border-stone-300
-                    bg-white px-2.5 py-2
-                    text-left transition-colors
-                    hover:border-stone-400
-                    dark:border-zinc-700
-                    dark:bg-[#232428]
-                    dark:hover:border-zinc-600
-                  "
+                  onClick={() => setEditingStatus(true)}
+                  className="mt-3 flex w-full items-center gap-2 rounded-md border border-stone-300 bg-white px-2.5 py-2 text-left transition-colors hover:border-stone-400 dark:border-zinc-700 dark:bg-[#232428] dark:hover:border-zinc-600"
                 >
-                  <span className="text-sm">
-                    💭
-                  </span>
-
+                  <span className="text-sm">💭</span>
                   <span className="truncate text-xs italic text-stone-500 dark:text-zinc-400">
-                    {customStatus ||
-                      "Definir status personalizado"}
+                    {customStatus || "Definir status personalizado"}
                   </span>
-
                   <Pencil className="ml-auto h-3.5 w-3.5 text-zinc-500" />
                 </button>
               )}
             </div>
 
-            {/* ================================================= */}
-            {/* OPÇÕES                                            */}
-            {/* ================================================= */}
-
             <div className="space-y-0.5">
-              {/* PERFIL */}
-
               <MenuItem
-                icon={
-                  <UserRound className="h-4 w-4" />
-                }
+                icon={<UserRound className="h-4 w-4" />}
                 onClick={() => {
                   closeMenu();
                   setProfileModalOpen(true);
@@ -509,12 +405,8 @@ export default function UserProfileContent({
                 Perfil
               </MenuItem>
 
-              {/* EDITAR PERFIL */}
-
               <MenuItem
-                icon={
-                  <Pencil className="h-4 w-4" />
-                }
+                icon={<Pencil className="h-4 w-4" />}
                 onClick={() => {
                   closeMenu();
                   setEditProfileModalOpen(true);
@@ -523,18 +415,9 @@ export default function UserProfileContent({
                 Editar perfil
               </MenuItem>
 
-              {/* STATUS */}
-
               <div className="relative">
                 <MenuItem
-                  icon={
-                    <span
-                      className={[
-                        "h-3 w-3 rounded-full",
-                        currentStatus.color,
-                      ].join(" ")}
-                    />
-                  }
+                  icon={<span className={["h-3 w-3 rounded-full", currentStatus.color].join(" ")} />}
                   arrow
                   onClick={toggleStatusMenu}
                 >
@@ -542,96 +425,34 @@ export default function UserProfileContent({
                 </MenuItem>
 
                 {submenu === "status" && (
-                  <div
-                    className="
-                      absolute bottom-0 left-full ml-2
-                      w-[230px]
-                      rounded-lg
-                      border border-stone-300
-                      bg-white p-1.5
-                      shadow-2xl
-                      dark:border-zinc-800
-                      dark:bg-[#111214]
-                    "
-                  >
+                  <div className="absolute bottom-0 left-full ml-2 w-[230px] rounded-lg border border-stone-300 bg-white p-1.5 shadow-2xl dark:border-zinc-800 dark:bg-[#111214]">
                     <div className="px-2.5 py-2">
-                      <div className="text-xs font-bold text-stone-800 dark:text-white">
-                        Status
-                      </div>
-
-                      <div className="text-[10px] text-stone-500 dark:text-zinc-500">
-                        Escolha como você aparece
-                      </div>
+                      <div className="text-xs font-bold text-stone-800 dark:text-white">Status</div>
+                      <div className="text-[10px] text-stone-500 dark:text-zinc-500">Escolha como você aparece</div>
                     </div>
-
-                    {statusOptions.map(
-                      (option) => (
-                        <button
-                          key={option.id}
-                          type="button"
-                          onClick={() =>
-                            selectStatus(
-                              option.id,
-                            )
-                          }
-                          className="
-                            flex w-full items-center gap-3
-                            rounded-md px-2.5 py-2
-                            text-left
-                            transition-colors
-                            hover:bg-stone-200
-                            dark:hover:bg-zinc-800
-                          "
-                        >
-                          <span
-                            className={[
-                              "h-3 w-3 shrink-0 rounded-full",
-                              option.color,
-                            ].join(" ")}
-                          />
-
-                          <div className="min-w-0 flex-1">
-                            <div className="text-sm text-stone-800 dark:text-zinc-100">
-                              {option.label}
-                            </div>
-
-                            <div className="text-[10px] text-stone-500 dark:text-zinc-500">
-                              {
-                                option.description
-                              }
-                            </div>
-                          </div>
-
-                          {status ===
-                            option.id && (
-                            <Check className="h-4 w-4 text-emerald-500" />
-                          )}
-                        </button>
-                      ),
-                    )}
+                    {statusOptions.map((option) => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => selectStatus(option.id)}
+                        className="flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-stone-200 dark:hover:bg-zinc-800"
+                      >
+                        <span className={["h-3 w-3 shrink-0 rounded-full", option.color].join(" ")} />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm text-stone-800 dark:text-zinc-100">{option.label}</div>
+                          <div className="text-[10px] text-stone-500 dark:text-zinc-500">{option.description}</div>
+                        </div>
+                        {status === option.id && <Check className="h-4 w-4 text-emerald-500" />}
+                      </button>
+                    ))}
                   </div>
                 )}
               </div>
 
               <Divider />
-
-              {/* COPIAR ID */}
-
+              <MenuItem icon={<Copy className="h-4 w-4" />} onClick={copyUserId}>Copiar ID do usuário</MenuItem>
               <MenuItem
-                icon={
-                  <Copy className="h-4 w-4" />
-                }
-                onClick={copyUserId}
-              >
-                Copiar ID do usuário
-              </MenuItem>
-
-              {/* CONFIGURAÇÕES */}
-
-              <MenuItem
-                icon={
-                  <Settings className="h-4 w-4" />
-                }
+                icon={<Settings className="h-4 w-4" />}
                 onClick={() => {
                   closeMenu();
                   setEditProfileModalOpen(true);
@@ -641,239 +462,150 @@ export default function UserProfileContent({
               </MenuItem>
 
               <Divider />
-
-              {/* SAIR */}
-
-              <MenuItem
-                icon={
-                  <LogOut className="h-4 w-4" />
-                }
-                danger
-                onClick={logout}
-              >
-                Sair
-              </MenuItem>
+              <MenuItem icon={<LogOut className="h-4 w-4" />} danger onClick={logout}>Sair</MenuItem>
             </div>
           </div>
         )}
       </div>
 
-      {/* ========================================================= */}
-      {/* MODAL DE PERFIL                                           */}
-      {/* ========================================================= */}
-
-      <Modal
-        isOpen={profileModalOpen}
-        onClose={() =>
-          setProfileModalOpen(false)
-        }
-        title="Perfil"
-      >
+      {/* MODAL DE PERFIL */}
+      <Modal isOpen={profileModalOpen} onClose={() => setProfileModalOpen(false)} title="Perfil">
         <div className="-mx-1 overflow-hidden rounded-lg">
-          {/* BANNER */}
-
           <div className="relative h-32 overflow-hidden rounded-t-lg bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500">
-            {banner && (
-              <img
-                src={banner}
-                alt=""
-                className="absolute inset-0 h-full w-full object-cover"
-              />
-            )}
+            {banner && <img src={banner} alt="" className="absolute inset-0 h-full w-full object-cover" />}
           </div>
-
-          {/* AVATAR */}
 
           <div className="relative px-5 pb-5">
             <div className="-mt-10 mb-3">
               <div className="relative inline-block">
-                <div
-                  className="
-                    flex h-20 w-20
-                    items-center justify-center
-                    overflow-hidden rounded-full
-                    border-[5px]
-                    border-white
-                    bg-indigo-500
-                    text-xl font-bold
-                    text-white
-                    dark:border-zinc-950
-                  "
-                >
+                <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border-[5px] border-white bg-indigo-500 text-xl font-bold text-white dark:border-zinc-950">
                   {avatar ? (
-                    <img
-                      src={avatar}
-                      alt={displayName}
-                      className="h-full w-full object-cover"
-                    />
+                    <img src={avatar} alt={displayName} className="h-full w-full object-cover" />
                   ) : (
                     getInitials(displayName)
                   )}
                 </div>
-
-                <span
-                  className={[
-                    "absolute bottom-0 right-0",
-                    "h-5 w-5 rounded-full",
-                    "border-[4px] border-white",
-                    "dark:border-zinc-950",
-                    currentStatus.color,
-                  ].join(" ")}
-                />
+                <span className={["absolute bottom-0 right-0", "h-5 w-5 rounded-full", "border-[4px] border-white", "dark:border-zinc-950", currentStatus.color].join(" ")} />
               </div>
             </div>
 
-            {/* NOME */}
-
             <div>
-              <h2 className="text-xl font-bold text-zinc-900 dark:text-white">
-                {displayName}
-              </h2>
-
-              <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                @{username}
-              </p>
+              <h2 className="text-xl font-bold text-zinc-900 dark:text-white">{displayName}</h2>
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">@{username}</p>
             </div>
-
-            {/* STATUS */}
 
             {customStatus && (
               <div className="mt-4 rounded-lg bg-zinc-100 px-3 py-2.5 dark:bg-zinc-900">
                 <div className="mb-1 flex items-center gap-2">
-                  <span
-                    className={[
-                      "h-2.5 w-2.5 rounded-full",
-                      currentStatus.color,
-                    ].join(" ")}
-                  />
-
-                  <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                    {currentStatus.label}
-                  </span>
+                  <span className={["h-2.5 w-2.5 rounded-full", currentStatus.color].join(" ")} />
+                  <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">{currentStatus.label}</span>
                 </div>
-
-                <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                  {customStatus}
-                </p>
+                <p className="text-sm text-zinc-600 dark:text-zinc-400">{customStatus}</p>
               </div>
             )}
-
-            {/* SOBRE MIM */}
 
             {bio && (
               <div className="mt-4">
-                <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-zinc-500">
-                  Sobre mim
-                </p>
-
-                <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
-                  {bio}
-                </p>
+                <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-zinc-500">Sobre mim</p>
+                <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">{bio}</p>
               </div>
             )}
 
-            {/* ID */}
-
             <div className="mt-5 border-t border-zinc-200 pt-4 dark:border-zinc-800">
-              <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-zinc-500">
-                ID do usuário
-              </p>
-
+              <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-zinc-500">ID do usuário</p>
               <button
                 type="button"
                 onClick={copyUserId}
-                className="
-                  flex max-w-full items-center gap-2
-                  rounded-md px-1 py-1
-                  text-xs text-zinc-600
-                  transition-colors
-                  hover:bg-zinc-100
-                  hover:text-zinc-900
-                  dark:text-zinc-400
-                  dark:hover:bg-zinc-900
-                  dark:hover:text-white
-                "
+                className="flex max-w-full items-center gap-2 rounded-md px-1 py-1 text-xs text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-white"
               >
                 <Copy className="h-3.5 w-3.5 shrink-0" />
-
-                <span className="truncate">
-                  {userId}
-                </span>
+                <span className="truncate">{userId}</span>
               </button>
             </div>
           </div>
         </div>
       </Modal>
 
-      {/* ========================================================= */}
-      {/* MODAL EDITAR PERFIL                                       */}
-      {/* ========================================================= */}
+      {/* MODAL EDITAR PERFIL */}
+      <Modal isOpen={editProfileModalOpen} onClose={() => setEditProfileModalOpen(false)} title="Editar perfil">
+        <div className="space-y-4">
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            Atualize suas informações visuais para que seus amigos possam te reconhecer melhor.
+          </p>
 
-      <Modal
-        isOpen={editProfileModalOpen}
-        onClose={() =>
-          setEditProfileModalOpen(false)
-        }
-        title="Editar perfil"
-      >
-        <div className="space-y-5">
-          <div>
-            <p className="text-sm font-semibold text-zinc-900 dark:text-white">
-              Seu perfil
-            </p>
+          <div className="space-y-4 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+            {/* Nome de Exibição */}
+            <div>
+              <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-zinc-500">
+                Nome de Exibição
+              </label>
+              <input
+                type="text"
+                value={editGlobalName}
+                onChange={(e) => setEditGlobalName(e.target.value)}
+                placeholder="Como você quer ser chamado?"
+                className="h-10 w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 text-sm text-zinc-900 outline-none transition-colors focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+              />
+            </div>
 
-            <p className="mt-1 text-xs text-zinc-500">
-              Personalize as informações que outros
-              usuários podem ver.
-            </p>
+            {/* URL do Avatar */}
+            <div>
+              <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-zinc-500">
+                URL do Avatar (Imagem)
+              </label>
+              <input
+                type="text"
+                value={editAvatarUrl}
+                onChange={(e) => setEditAvatarUrl(e.target.value)}
+                placeholder="https://exemplo.com/sua-foto.jpg"
+                className="h-10 w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 text-sm text-zinc-900 outline-none transition-colors focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+              />
+            </div>
+
+            {/* URL do Banner */}
+            <div>
+              <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-zinc-500">
+                URL do Banner (Capa)
+              </label>
+              <input
+                type="text"
+                value={editBannerUrl}
+                onChange={(e) => setEditBannerUrl(e.target.value)}
+                placeholder="https://exemplo.com/sua-capa.jpg"
+                className="h-10 w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 text-sm text-zinc-900 outline-none transition-colors focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+              />
+            </div>
+
+            {/* Biografia */}
+            <div>
+              <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-zinc-500">
+                Sobre Mim
+              </label>
+              <textarea
+                value={editBio}
+                onChange={(e) => setEditBio(e.target.value)}
+                placeholder="Conte um pouco sobre você..."
+                rows={3}
+                className="w-full resize-none rounded-md border border-zinc-300 bg-zinc-50 p-3 text-sm text-zinc-900 outline-none transition-colors focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+              />
+            </div>
           </div>
 
-          <div className="flex items-center gap-4">
-            <div
-              className="
-                flex h-16 w-16 shrink-0
-                items-center justify-center
-                overflow-hidden rounded-full
-                bg-indigo-500
-                text-lg font-bold text-white
-              "
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              onClick={() => setEditProfileModalOpen(false)}
+              disabled={isSaving}
+              className="rounded-md px-4 py-2 text-sm font-semibold text-zinc-700 transition-colors hover:underline dark:text-zinc-300"
             >
-              {avatar ? (
-                <img
-                  src={avatar}
-                  alt={displayName}
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                getInitials(displayName)
-              )}
-            </div>
-
-            <div className="min-w-0">
-              <p className="truncate font-semibold text-zinc-900 dark:text-white">
-                {displayName}
-              </p>
-
-              <p className="truncate text-xs text-zinc-500">
-                @{username}
-              </p>
-            </div>
-          </div>
-
-          <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
-            <p className="text-sm font-medium text-zinc-900 dark:text-white">
-              Editor de perfil
-            </p>
-
-            <p className="mt-1 text-xs text-zinc-500">
-              Aqui você poderá editar avatar, banner,
-              nome, biografia e outras informações.
-            </p>
-
-            <div className="mt-4 rounded-md bg-zinc-100 p-3 text-xs text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
-              O formulário de edição pode ser conectado
-              às suas actions do servidor posteriormente.
-            </div>
+              Cancelar
+            </button>
+            <button
+              onClick={handleSaveProfile}
+              disabled={isSaving}
+              className="flex items-center justify-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-500 disabled:opacity-50"
+            >
+              {isSaving ? "Salvando..." : "Salvar alterações"}
+            </button>
           </div>
         </div>
       </Modal>
