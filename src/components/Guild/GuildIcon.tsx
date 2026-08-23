@@ -1,7 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
@@ -22,6 +20,19 @@ interface GuildIconProps {
   guild: Guild;
 }
 
+function resolveFileUrl(urlOrKey?: string | null) {
+  if (!urlOrKey) return "";
+  if (
+    urlOrKey.startsWith("http://") ||
+    urlOrKey.startsWith("https://") ||
+    urlOrKey.startsWith("blob:") ||
+    urlOrKey.startsWith("/")
+  ) {
+    return urlOrKey;
+  }
+  return `/api/files?key=${encodeURIComponent(urlOrKey)}`;
+}
+
 export default function GuildIcon({ guild }: GuildIconProps) {
   const params = useParams();
   const firstLetter = guild.name?.charAt(0).toUpperCase() || "?";
@@ -30,105 +41,11 @@ export default function GuildIcon({ guild }: GuildIconProps) {
     params?.id === guild.id.toString() ||
     params?.guildId === guild.id.toString();
 
-  const [resolvedIconUrl, setResolvedIconUrl] = useState<string>("");
-  const [resolvedBannerUrl, setResolvedBannerUrl] = useState<string>("");
-
-  // Resolve a URL do ícone via /api/files (MinIO)
-  useEffect(() => {
-    let isMounted = true;
-
-    async function resolveIcon() {
-      if (!guild.iconUrl) {
-        setResolvedIconUrl("");
-        return;
-      }
-
-      if (
-        guild.iconUrl.startsWith("http://") ||
-        guild.iconUrl.startsWith("https://") ||
-        guild.iconUrl.startsWith("blob:") ||
-        guild.iconUrl.startsWith("/")
-      ) {
-        if (isMounted) setResolvedIconUrl(guild.iconUrl);
-        return;
-      }
-
-      try {
-        const response = await fetch(
-          `/api/files?key=${encodeURIComponent(guild.iconUrl)}`,
-          { cache: "no-store" }
-        );
-
-        const data = await response.json();
-
-        if (isMounted && data.success && data.url) {
-          setResolvedIconUrl(data.url);
-        } else if (isMounted) {
-          setResolvedIconUrl(guild.iconUrl);
-        }
-      } catch (error) {
-        if (isMounted) setResolvedIconUrl(guild.iconUrl);
-      }
-    }
-
-    resolveIcon();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [guild.iconUrl]);
-
-  // Resolve a URL do banner via /api/files (MinIO)
-  useEffect(() => {
-    let isMounted = true;
-
-    async function resolveBanner() {
-      if (!guild.bannerUrl) {
-        setResolvedBannerUrl("");
-        return;
-      }
-
-      if (
-        guild.bannerUrl.startsWith("http://") ||
-        guild.bannerUrl.startsWith("https://") ||
-        guild.bannerUrl.startsWith("blob:") ||
-        guild.bannerUrl.startsWith("/")
-      ) {
-        if (isMounted) setResolvedBannerUrl(guild.bannerUrl);
-        return;
-      }
-
-      try {
-        const response = await fetch(
-          `/api/files?key=${encodeURIComponent(guild.bannerUrl)}`,
-          { cache: "no-store" }
-        );
-
-        const data = await response.json();
-
-        if (isMounted && data.success && data.url) {
-          setResolvedBannerUrl(data.url);
-        } else if (isMounted) {
-          setResolvedBannerUrl(guild.bannerUrl);
-        }
-      } catch (error) {
-        if (isMounted) setResolvedBannerUrl(guild.bannerUrl);
-      }
-    }
-
-    resolveBanner();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [guild.bannerUrl]);
+  const resolvedIconUrl = resolveFileUrl(guild.iconUrl);
+  const resolvedBannerUrl = resolveFileUrl(guild.bannerUrl);
 
   return (
     <div className="relative group flex items-center justify-center w-full py-1">
-      
-      {/* ========================================== */}
-      {/* PÍLULA INDICADORA (Lado esquerdo)          */}
-      {/* ========================================== */}
       <div className="absolute left-0 flex h-full w-2 items-center justify-start pointer-events-none">
         <div
           className={`w-1 rounded-r-full bg-zinc-900 dark:bg-white transition-all duration-200 ${
@@ -141,9 +58,6 @@ export default function GuildIcon({ guild }: GuildIconProps) {
 
       <Tooltip>
         <TooltipTrigger>
-          {/* ========================================== */}
-          {/* ÍCONE DA GUILD                            */}
-          {/* ========================================== */}
           <Link
             href={`/channels/${guild.id}`}
             className={`flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden transition-all duration-200 ${
@@ -153,11 +67,9 @@ export default function GuildIcon({ guild }: GuildIconProps) {
             }`}
           >
             {resolvedIconUrl ? (
-              <Image
+              <img
                 src={resolvedIconUrl}
                 alt={guild.name}
-                width={48}
-                height={48}
                 className="h-full w-full object-cover"
               />
             ) : (
@@ -168,30 +80,22 @@ export default function GuildIcon({ guild }: GuildIconProps) {
           </Link>
         </TooltipTrigger>
 
-        {/* ========================================== */}
-        {/* TOOLTIP PROFILE (Renderizado via Portal)   */}
-        {/* ========================================== */}
         <TooltipContent
           side="right"
           sideOffset={20}
           className="w-72 p-0 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-[#111214] text-zinc-950 dark:text-zinc-50 z-[100]"
         >
-          {/* Banner do Servidor
-          {resolvedBannerUrl ? (
+          {resolvedBannerUrl && (
             <div className="relative h-28 w-full overflow-hidden bg-zinc-800">
-              <Image
+              <img
                 src={resolvedBannerUrl}
                 alt="Banner"
-                fill
-                className="object-cover"
+                className="h-full w-full object-cover"
               />
             </div>
-          ) : (
-            <div className="h-20 w-full bg-indigo-600/30" />
-          )} */}
+          )}
 
           <div className="relative p-4 pt-3">
-            {/* Nome e Descrição */}
             <div>
               <h3 className="font-bold text-base leading-tight truncate">
                 {guild.name}
@@ -201,7 +105,6 @@ export default function GuildIcon({ guild }: GuildIconProps) {
               </p>
             </div>
 
-            {/* Contador de Membros (Banco de dados Real + Online Estimado) */}
             <div className="mt-4 flex items-center gap-4 text-xs font-semibold text-zinc-600 dark:text-zinc-400">
               <div className="flex items-center gap-1.5">
                 <span className="h-2.5 w-2.5 rounded-full bg-emerald-500"></span>

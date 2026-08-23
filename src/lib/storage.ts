@@ -58,7 +58,7 @@ export async function getFileUrl(
         storage,
         command,
         {
-            expiresIn: 60 * 60, // 1 hora
+            expiresIn: 60 * 60,
         }
     );
 }

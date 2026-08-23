@@ -86,11 +86,13 @@ export default function DirectMessagesList({
 
       {/* Usuário */}
       <UserProfileSideBar
-            name="Nome"
-              username="@username"
-              status="Status personalizado"
-              avatar="N"
-               ></UserProfileSideBar>
+        user={{
+          id: "",
+          globalName: "Nome",
+          username: "username",
+          avatarUrl: null,
+        }}
+      />
     </aside>
   );
 }

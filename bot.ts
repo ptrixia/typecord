@@ -358,9 +358,9 @@ async function handleMessage(originalMessage: MessageCreateData) {
 
     if (command === "!embed") {
         await sendMessage(message.channelId, "", message.id, {
-            title: "🤖 Typecord Bot",
-            description: "Este embed foi enviado diretamente pela API do bot.\n\n**Status:** Online 🟢\n**Plataforma:** Typecord",
-            color: "#5865F2",
+            title: "dfghdfgasdhfgdhgdfgasfdhgfdg",
+            description: "oajsdpoihashdfkjlfhgdlkjhgipashjdiphgfipdjhgapsdóp",
+            color: "#FF0000",
             footer: { text: "Typecord • Bot" },
         });
         return;

@@ -2,13 +2,21 @@
 
 import { db } from "@/lib/db";
 import { revalidatePath } from "next/cache";
-import { PERMISSIONS, validatePermissionBitfield, type PermissionName } from "@/lib/permissions";
-import { requireGuildPermission } from "@/lib/permissions.server";
+import { Permissions as PERMISSIONS, type PermissionName } from "@/lib/permissions";
+import { requirePermission } from "@/lib/permissions.server";
 
 function bitfieldFromNames(names: PermissionName[]) {
   let value = 0n;
   for (const name of names) value |= PERMISSIONS[name];
   return value.toString();
+}
+
+function validatePermissionBitfield(value: string) {
+  try {
+    return BigInt(value).toString();
+  } catch {
+    return "0";
+  }
 }
 
 export async function setChannelPermissionOverwrite(
@@ -27,7 +35,7 @@ export async function setChannelPermissionOverwrite(
   });
   if (!channel) throw new Error("Canal não encontrado.");
 
-  const ctx = await requireGuildPermission(channel.guildId, "MANAGE_CHANNELS");
+  const ctx = await requirePermission(channel.guildId, PERMISSIONS.MANAGE_CHANNELS);
 
   const safeAllow = validatePermissionBitfield(allow);
   const safeDeny = validatePermissionBitfield(deny);
@@ -52,7 +60,7 @@ export async function setChannelPermissionOverwrite(
   await db.auditLog.create({
     data: {
       guildId: channel.guildId,
-      actorId: ctx.user.id,
+      actorId: ctx.id,
       action: "CHANNEL_OVERWRITE_UPDATE",
       targetId: channelId,
       metadata: { ...target, allow: safeAllow, deny: safeDeny },
@@ -77,7 +85,7 @@ export async function deleteChannelPermissionOverwrite(
   });
   if (!channel) throw new Error("Canal não encontrado.");
 
-  const ctx = await requireGuildPermission(channel.guildId, "MANAGE_CHANNELS");
+  const ctx = await requirePermission(channel.guildId, PERMISSIONS.MANAGE_CHANNELS);
 
   if (target.roleId) {
     await db.permissionOverwrite.deleteMany({
@@ -92,7 +100,7 @@ export async function deleteChannelPermissionOverwrite(
   await db.auditLog.create({
     data: {
       guildId: channel.guildId,
-      actorId: ctx.user.id,
+      actorId: ctx.id,
       action: "CHANNEL_OVERWRITE_DELETE",
       targetId: channelId,
       metadata: target,

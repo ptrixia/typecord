@@ -17,3 +17,18 @@ export const messageSchema = z.object({
   content: z.string().min(1, "A mensagem não pode ser vazia."),
   channelId: z.string().uuid(),
 });
+
+export function getFileUrl(urlOrKey?: string | null) {
+  if (!urlOrKey) return "";
+
+  if (
+    urlOrKey.startsWith("http://") ||
+    urlOrKey.startsWith("https://") ||
+    urlOrKey.startsWith("blob:") ||
+    urlOrKey.startsWith("/")
+  ) {
+    return urlOrKey;
+  }
+
+  return `/api/files?key=${encodeURIComponent(urlOrKey)}`;
+}

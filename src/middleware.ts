@@ -1,19 +1,21 @@
 import { withAuth } from "next-auth/middleware";
 
 export default withAuth(
-    function middleware(req) {
-        return;
+  function middleware(req) {
+    return;
+  },
+  {
+    pages: {
+      signIn: "/login",
     },
-    {
-        pages: {
-            signIn: "/login",
-        },
-    },
+  }
 );
 
 export const config = {
-    matcher: [
-        "/channels/:path*",
-        "/api/((?!gateway(?:/.*)?$|channels/[^/]+/messages$).*)",
-    ],
+  matcher: [
+
+    "/channels/:path*",
+
+    "/api/((?!auth(?:/.*)?$|register$|gateway(?:/.*)?$|channels/[^/]+/messages$).*)",
+  ],
 };

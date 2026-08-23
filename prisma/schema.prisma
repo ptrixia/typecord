@@ -213,6 +213,8 @@ model Role {
   position    Int
   permissions String  @default("0")
 
+  mentionable Boolean  @default(false)
+
   managed   Boolean @default(false)
   isDefault Boolean @default(false)
 

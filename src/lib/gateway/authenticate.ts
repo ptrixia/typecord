@@ -18,6 +18,7 @@ export async function authenticateBot(
           username: true,
           globalName: true,
           avatarUrl: true,
+          bannerUrl: true,
           status: true,
         },
       },

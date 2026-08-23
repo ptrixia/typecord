@@ -1,35 +1,59 @@
 import { getServerSession } from "next-auth";
+import { Prisma } from "@prisma/client";
 
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { redis } from "@/lib/redis";
-import { User } from "@prisma/client";
 
-export async function getCurrentUser(): Promise<User | null> {
+const userSelect = {
+  id: true,
+  username: true,
+  globalName: true,
+  email: true,
+  avatarUrl: true,
+  bannerUrl: true,
+  status: true,
+} satisfies Prisma.UserSelect;
+
+type CurrentUser = Prisma.UserGetPayload<{
+  select: typeof userSelect;
+}>;
+
+export async function getCurrentUser(): Promise<CurrentUser | null> {
   try {
-
     const session = await getServerSession(authOptions);
 
-    if (!session?.user || !(session.user as any).id) {
+    const userId = (session?.user as { id?: string } | undefined)?.id;
+
+    if (!userId) {
       return null;
     }
 
-    const userId = (session.user as any).id;
     const redisKey = `user:${userId}`;
 
     const cachedUser = await redis.get(redisKey);
-    
+
     if (cachedUser) {
-      return JSON.parse(cachedUser) as User;
+      return JSON.parse(cachedUser) as CurrentUser;
     }
 
     const user = await db.user.findUnique({
-      where: { id: userId },
+      where: {
+        id: userId,
+      },
+      select: userSelect,
     });
 
-    if (!user) return null;
+    if (!user) {
+      return null;
+    }
 
-    await redis.set(redisKey, JSON.stringify(user), "EX", 3600);
+    await redis.set(
+      redisKey,
+      JSON.stringify(user),
+      "EX",
+      3600,
+    );
 
     return user;
   } catch (error) {

@@ -17,6 +17,19 @@ interface ChannelsSidebarProps {
   currentMember: any;
 }
 
+function resolveFileUrl(urlOrKey?: string | null) {
+  if (!urlOrKey) return "";
+  if (
+    urlOrKey.startsWith("http://") ||
+    urlOrKey.startsWith("https://") ||
+    urlOrKey.startsWith("blob:") ||
+    urlOrKey.startsWith("/")
+  ) {
+    return urlOrKey;
+  }
+  return `/api/files?key=${encodeURIComponent(urlOrKey)}`;
+}
+
 export default function ChannelsSidebar({
   guild,
   activeChannel,
@@ -34,53 +47,10 @@ export default function ChannelsSidebar({
   const [channelName, setChannelName] = useState("");
   const [channelType, setChannelType] = useState<"GUILD_TEXT" | "GUILD_VOICE">("GUILD_TEXT");
   const [isLoading, setIsLoading] = useState(false);
-  const [resolvedBannerUrl, setResolvedBannerUrl] = useState<string>("");
 
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    let isMounted = true;
-
-    async function resolveBanner() {
-      if (!guild?.bannerUrl) {
-        setResolvedBannerUrl("");
-        return;
-      }
-
-      if (
-        guild.bannerUrl.startsWith("http://") ||
-        guild.bannerUrl.startsWith("https://") ||
-        guild.bannerUrl.startsWith("blob:") ||
-        guild.bannerUrl.startsWith("/")
-      ) {
-        if (isMounted) setResolvedBannerUrl(guild.bannerUrl);
-        return;
-      }
-
-      try {
-        const response = await fetch(
-          `/api/files?key=${encodeURIComponent(guild.bannerUrl)}`,
-          { cache: "no-store" }
-        );
-
-        const data = await response.json();
-
-        if (isMounted && data.success && data.url) {
-          setResolvedBannerUrl(data.url);
-        } else if (isMounted) {
-          setResolvedBannerUrl(guild.bannerUrl);
-        }
-      } catch (error) {
-        if (isMounted) setResolvedBannerUrl(guild.bannerUrl);
-      }
-    }
-
-    resolveBanner();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [guild?.bannerUrl]);
+  const resolvedBannerUrl = resolveFileUrl(guild?.bannerUrl);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
