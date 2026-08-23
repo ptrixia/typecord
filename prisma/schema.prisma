@@ -17,6 +17,75 @@ enum UserStatus {
   OFFLINE
 }
 
+model GatewaySession {
+  id String @id @default(uuid())
+
+  botId String
+  bot   Bot @relation(fields: [botId], references: [id], onDelete: Cascade)
+
+  sessionTokenHash String @unique
+
+  lastHeartbeatAt DateTime @default(now())
+  expiresAt       DateTime
+
+  revokedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([botId])
+  @@index([expiresAt])
+}
+
+model Bot {
+  id String @id @default(uuid())
+
+  userId String @unique
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  ownerId String
+  owner   User @relation("BotOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  tokenHash String @unique
+
+  disabled Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  gatewaySessions GatewaySession[]
+
+  @@index([userId])
+  @@index([ownerId])
+}
+
+model Embed {
+    id          String   @id @default(uuid())
+    title       String?  @db.Text
+    description String?  @db.Text
+    url         String?  @db.Text
+    color       String?
+    timestamp   String?
+    
+    authorName  String?
+    authorUrl   String?  @db.Text
+    authorIcon  String?  @db.Text
+
+    footerText  String?  @db.Text
+    footerIcon  String?  @db.Text
+
+    imageUrl    String?  @db.Text
+    thumbnailUrl String? @db.Text
+
+    fields      Json?
+
+    messageId   String
+    message     Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+    createdAt   DateTime @default(now())
+
+    @@index([messageId])
+}
+
 model User {
   id           String     @id @default(uuid())
   email        String     @unique
@@ -27,6 +96,9 @@ model User {
   bannerUrl    String?    @db.Text
   bio          String?    @db.Text
   status       UserStatus @default(OFFLINE)
+
+  bot          Bot?
+  botsOwned Bot[] @relation("BotOwner")
 
   guildsOwned   Guild[]
   memberships   Member[]
@@ -44,7 +116,6 @@ model User {
   accounts      Account[]
   sessions      Session[]
 }
-
 model Account {
   id                String  @id @default(uuid())
   userId            String
@@ -249,31 +320,31 @@ model Channel {
 // ------------------------------------------------------
 
 model Message {
-  id       String  @id @default(uuid())
-  content  String  @db.Text
-  deleted  Boolean @default(false)
-  isPinned Boolean @default(false)
+    id        String   @id @default(uuid())
+    content   String   @db.Text
+    deleted   Boolean  @default(false)
+    isPinned  Boolean  @default(false)
 
-  memberId String
-  member   Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+    memberId String
+    member   Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
 
-  channelId String
-  channel   Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+    channelId String
+    channel   Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
 
-  // Resposta a outra mensagem
-  replyToId String?
-  replyTo   Message?  @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
-  replies   Message[] @relation("MessageReplies")
+    replyToId String?
+    replyTo   Message?  @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+    replies   Message[] @relation("MessageReplies")
 
-  attachments Attachment[]
-  reactions   Reaction[]
+    attachments Attachment[]
+    embeds      Embed[]
+    reactions   Reaction[]
 
-  createdAt DateTime  @default(now())
-  editedAt  DateTime?
+    createdAt DateTime  @default(now())
+    editedAt  DateTime?
 
-  @@index([channelId])
-  @@index([memberId])
-  @@index([replyToId])
+    @@index([channelId])
+    @@index([memberId])
+    @@index([replyToId])
 }
 
 model Attachment {

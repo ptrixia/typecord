@@ -10,11 +10,14 @@ import {
   Pencil,
   Settings,
   UserRound,
+  ImagePlus,
+  Loader2,
 } from "lucide-react";
 
 import { useEffect, useRef, useState } from "react";
 import Modal from "@/components/Modal";
 import { updateUserProfile } from "@/actions/user";
+import { useRouter } from "next/navigation";
 
 type UserStatus = "online" | "ausente" | "ocupado" | "invisivel";
 
@@ -38,30 +41,10 @@ const statusOptions: {
   description: string;
   color: string;
 }[] = [
-  {
-    id: "online",
-    label: "Online",
-    description: "Você está disponível",
-    color: "bg-emerald-500",
-  },
-  {
-    id: "ausente",
-    label: "Ausente",
-    description: "Você está ausente",
-    color: "bg-yellow-500",
-  },
-  {
-    id: "ocupado",
-    label: "Ocupado",
-    description: "Não perturbe",
-    color: "bg-red-500",
-  },
-  {
-    id: "invisivel",
-    label: "Invisível",
-    description: "Aparecer offline",
-    color: "bg-zinc-500",
-  },
+  { id: "online", label: "Online", description: "Disponível", color: "bg-emerald-500" },
+  { id: "ausente", label: "Ausente", description: "Ausente", color: "bg-yellow-500" },
+  { id: "ocupado", label: "Ocupado", description: "Não perturbe", color: "bg-red-500" },
+  { id: "invisivel", label: "Invisível", description: "Invisível", color: "bg-zinc-500" },
 ];
 
 function MenuItem({
@@ -83,36 +66,25 @@ function MenuItem({
       onClick={onClick}
       className={[
         "flex w-full items-center gap-3 rounded-md px-2.5 py-2",
-        "text-sm transition-colors",
+        "text-sm transition-colors font-medium",
         danger
           ? "text-red-500 hover:bg-red-500/10"
           : "text-stone-700 hover:bg-stone-200 dark:text-zinc-200 dark:hover:bg-zinc-800",
       ].join(" ")}
     >
-      <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-        {icon}
-      </span>
-
-      <span className="min-w-0 flex-1 truncate text-left">
-        {children}
-      </span>
-
-      {arrow && (
-        <ChevronRight className="h-4 w-4 shrink-0 text-zinc-500" />
-      )}
+      <span className="flex h-4 w-4 shrink-0 items-center justify-center">{icon}</span>
+      <span className="min-w-0 flex-1 truncate text-left">{children}</span>
+      {arrow && <ChevronRight className="h-4 w-4 shrink-0 text-zinc-500" />}
     </button>
   );
 }
 
 function Divider() {
-  return (
-    <div className="my-1 border-t border-stone-200 dark:border-zinc-800" />
-  );
+  return <div className="my-1 border-t border-stone-200 dark:border-zinc-800" />;
 }
 
-export default function UserProfileContent({
-  user,
-}: UserProfileContentProps) {
+export default function UserProfileContent({ user }: UserProfileContentProps) {
+  const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [submenu, setSubmenu] = useState<"status" | null>(null);
 
@@ -127,71 +99,152 @@ export default function UserProfileContent({
   const [editingStatus, setEditingStatus] = useState(false);
 
   const menuRef = useRef<HTMLDivElement>(null);
+  const editAvatarRef = useRef<HTMLInputElement>(null);
+  const editBannerRef = useRef<HTMLInputElement>(null);
 
-  // Estados locais para edição do perfil
   const [editGlobalName, setEditGlobalName] = useState(user?.globalName || "");
   const [editAvatarUrl, setEditAvatarUrl] = useState(user?.avatarUrl || "");
   const [editBannerUrl, setEditBannerUrl] = useState(user?.bannerUrl || "");
   const [editBio, setEditBio] = useState(user?.bio || "");
+  
+  const [resolvedAvatarUrl, setResolvedAvatarUrl] = useState<string>("");
+  const [resolvedBannerUrl, setResolvedBannerUrl] = useState<string>("");
+  const [resolvedEditAvatarUrl, setResolvedEditAvatarUrl] = useState<string>("");
+  const [resolvedEditBannerUrl, setResolvedEditBannerUrl] = useState<string>("");
+  
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [isUploadingBanner, setIsUploadingBanner] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   const username = user?.username || "usuario";
   const displayName = user?.globalName || username;
-  const avatar = user?.avatarUrl || null;
-  const banner = user?.bannerUrl || null;
-  const bio = user?.bio || null;
   const userId = user?.id || "";
 
-  const currentStatus =
-    statusOptions.find((item) => item.id === status) ?? statusOptions[0];
+  const currentStatus = statusOptions.find((item) => item.id === status) ?? statusOptions[0];
+
+  useEffect(() => {
+    if (!user) return;
+    setEditGlobalName(user.globalName || "");
+    setEditAvatarUrl(user.avatarUrl || "");
+    setEditBannerUrl(user.bannerUrl || "");
+    setEditBio(user.bio || "");
+  }, [user]);
+
+  // Resolver Avatar principal
+  useEffect(() => {
+    let isMounted = true;
+    async function resolveAvatar() {
+      if (!user?.avatarUrl) {
+        setResolvedAvatarUrl("");
+        return;
+      }
+      if (user.avatarUrl.startsWith("http") || user.avatarUrl.startsWith("blob") || user.avatarUrl.startsWith("/")) {
+        if (isMounted) setResolvedAvatarUrl(user.avatarUrl);
+        return;
+      }
+      try {
+        const response = await fetch(`/api/files?key=${encodeURIComponent(user.avatarUrl)}`, { cache: "no-store" });
+        const data = await response.json();
+        if (isMounted && data.success && data.url) setResolvedAvatarUrl(data.url);
+      } catch {
+        if (isMounted) setResolvedAvatarUrl(user.avatarUrl);
+      }
+    }
+    resolveAvatar();
+    return () => { isMounted = false; };
+  }, [user?.avatarUrl]);
+
+  // Resolver Banner principal
+  useEffect(() => {
+    let isMounted = true;
+    async function resolveBanner() {
+      if (!user?.bannerUrl) {
+        setResolvedBannerUrl("");
+        return;
+      }
+      if (user.bannerUrl.startsWith("http") || user.bannerUrl.startsWith("blob") || user.bannerUrl.startsWith("/")) {
+        if (isMounted) setResolvedBannerUrl(user.bannerUrl);
+        return;
+      }
+      try {
+        const response = await fetch(`/api/files?key=${encodeURIComponent(user.bannerUrl)}`, { cache: "no-store" });
+        const data = await response.json();
+        if (isMounted && data.success && data.url) setResolvedBannerUrl(data.url);
+      } catch {
+        if (isMounted) setResolvedBannerUrl(user.bannerUrl);
+      }
+    }
+    resolveBanner();
+    return () => { isMounted = false; };
+  }, [user?.bannerUrl]);
+
+  // Resolver Avatar para edição
+  useEffect(() => {
+    let isMounted = true;
+    async function resolveEditAvatar() {
+      if (!editAvatarUrl) {
+        setResolvedEditAvatarUrl("");
+        return;
+      }
+      if (editAvatarUrl.startsWith("http") || editAvatarUrl.startsWith("blob") || editAvatarUrl.startsWith("/")) {
+        if (isMounted) setResolvedEditAvatarUrl(editAvatarUrl);
+        return;
+      }
+      try {
+        const response = await fetch(`/api/files?key=${encodeURIComponent(editAvatarUrl)}`, { cache: "no-store" });
+        const data = await response.json();
+        if (isMounted && data.success && data.url) setResolvedEditAvatarUrl(data.url);
+      } catch {
+        if (isMounted) setResolvedEditAvatarUrl(editAvatarUrl);
+      }
+    }
+    resolveEditAvatar();
+    return () => { isMounted = false; };
+  }, [editAvatarUrl]);
+
+  // Resolver Banner para edição
+  useEffect(() => {
+    let isMounted = true;
+    async function resolveEditBanner() {
+      if (!editBannerUrl) {
+        setResolvedEditBannerUrl("");
+        return;
+      }
+      if (editBannerUrl.startsWith("http") || editBannerUrl.startsWith("blob") || editBannerUrl.startsWith("/")) {
+        if (isMounted) setResolvedEditBannerUrl(editBannerUrl);
+        return;
+      }
+      try {
+        const response = await fetch(`/api/files?key=${encodeURIComponent(editBannerUrl)}`, { cache: "no-store" });
+        const data = await response.json();
+        if (isMounted && data.success && data.url) setResolvedEditBannerUrl(data.url);
+      } catch {
+        if (isMounted) setResolvedEditBannerUrl(editBannerUrl);
+      }
+    }
+    resolveEditBanner();
+    return () => { isMounted = false; };
+  }, [editBannerUrl]);
 
   useEffect(() => {
     function handlePointerDown(event: PointerEvent) {
       const target = event.target;
-
-      if (
-        target instanceof Node &&
-        menuRef.current &&
-        !menuRef.current.contains(target)
-      ) {
+      if (target instanceof Node && menuRef.current && !menuRef.current.contains(target)) {
         setMenuOpen(false);
         setSubmenu(null);
         setEditingStatus(false);
       }
     }
-
     document.addEventListener("pointerdown", handlePointerDown);
-
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-    };
+    return () => { document.removeEventListener("pointerdown", handlePointerDown); };
   }, []);
 
   function getInitials(name: string) {
     const clean = name.trim();
     if (!clean) return "U";
-
     const parts = clean.split(/\s+/);
-    if (parts.length >= 2) {
-      return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
-    }
-
+    if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
     return parts[0][0].toUpperCase();
-  }
-
-  function toggleMenu() {
-    setMenuOpen((current) => !current);
-    setSubmenu(null);
-    setEditingStatus(false);
-  }
-
-  function toggleStatusMenu() {
-    setSubmenu((current) => (current === "status" ? null : "status"));
-  }
-
-  function selectStatus(value: UserStatus) {
-    setStatus(value);
-    setSubmenu(null);
   }
 
   async function copyUserId() {
@@ -199,7 +252,7 @@ export default function UserProfileContent({
     try {
       await navigator.clipboard.writeText(userId);
     } catch {
-      console.error("Não foi possível copiar o ID.");
+      console.error("Erro ao copiar ID");
     }
   }
 
@@ -213,6 +266,45 @@ export default function UserProfileContent({
     window.location.href = "/api/auth/signout";
   }
 
+  async function handleUploadFile(event: React.ChangeEvent<HTMLInputElement>, type: "avatar" | "banner") {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      alert("Selecione uma imagem válida.");
+      return;
+    }
+
+    if (type === "avatar") setIsUploadingAvatar(true);
+    else setIsUploadingBanner(true);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.success || !data.key) {
+        throw new Error(data.message ?? "Falha no upload.");
+      }
+
+      if (type === "avatar") {
+        setEditAvatarUrl(data.key);
+      } else {
+        setEditBannerUrl(data.key);
+      }
+    } catch (error: any) {
+      alert(error.message ?? "Erro ao enviar imagem.");
+    } finally {
+      if (type === "avatar") setIsUploadingAvatar(false);
+      else setIsUploadingBanner(false);
+    }
+  }
+
   async function handleSaveProfile() {
     setIsSaving(true);
     try {
@@ -224,6 +316,7 @@ export default function UserProfileContent({
       });
       
       setEditProfileModalOpen(false);
+      router.refresh();
       window.location.reload();
     } catch (error) {
       console.error("Erro ao salvar perfil", error);
@@ -235,46 +328,28 @@ export default function UserProfileContent({
 
   return (
     <>
+      <input ref={editAvatarRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => handleUploadFile(e, "avatar")} />
+      <input ref={editBannerRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => handleUploadFile(e, "banner")} />
+
       {/* BARRA DO USUÁRIO */}
       <div
         ref={menuRef}
-        className="
-          relative flex h-[58px] shrink-0 items-center
-          border-t border-stone-300
-          bg-stone-300/80 px-2
-          dark:border-zinc-950
-          dark:bg-[#1e1f22]
-        "
+        className="relative flex h-[58px] shrink-0 items-center border-t border-stone-300 bg-stone-300/80 px-2 dark:border-zinc-950 dark:bg-[#1e1f22]"
       >
         <button
           type="button"
-          onClick={toggleMenu}
-          className="
-            flex min-w-0 flex-1 items-center
-            rounded-md px-1 py-1
-            text-left transition-colors
-            hover:bg-stone-400/40
-            dark:hover:bg-zinc-800/80
-          "
+          onClick={() => { setMenuOpen((c) => !c); setSubmenu(null); setEditingStatus(false); }}
+          className="flex min-w-0 flex-1 items-center rounded-md px-1 py-1 text-left transition-colors hover:bg-stone-400/40 dark:hover:bg-zinc-800/80"
         >
           <div className="relative shrink-0">
-            <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-indigo-500 text-xs font-bold text-white">
-              {avatar ? (
-                <img src={avatar} alt={displayName} className="h-full w-full object-cover" />
+            <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-indigo-500 text-xs font-bold text-white shadow-sm">
+              {resolvedAvatarUrl ? (
+                <img src={resolvedAvatarUrl} alt={displayName} loading="eager" className="h-full w-full object-cover" />
               ) : (
                 getInitials(displayName)
               )}
             </div>
-
-            <span
-              className={[
-                "absolute bottom-[-1px] right-[-1px]",
-                "h-3 w-3 rounded-full",
-                "border-[3px] border-stone-300",
-                "dark:border-[#1e1f22]",
-                currentStatus.color,
-              ].join(" ")}
-            />
+            <span className={["absolute bottom-[-1px] right-[-1px] h-3 w-3 rounded-full border-[3px] border-stone-300 dark:border-[#1e1f22]", currentStatus.color].join(" ")} />
           </div>
 
           <div className="ml-2 min-w-0 flex-1">
@@ -291,13 +366,8 @@ export default function UserProfileContent({
           <button
             type="button"
             title={isMuted ? "Ativar microfone" : "Silenciar"}
-            onClick={() => setIsMuted((value) => !value)}
-            className={[
-              "flex h-8 w-8 items-center justify-center rounded-md transition-colors",
-              isMuted
-                ? "text-red-400 hover:bg-red-500/10"
-                : "text-stone-600 hover:bg-stone-400/40 hover:text-stone-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white",
-            ].join(" ")}
+            onClick={() => setIsMuted((val) => !val)}
+            className={["flex h-8 w-8 items-center justify-center rounded-md transition-colors", isMuted ? "text-red-400 hover:bg-red-500/10" : "text-stone-600 hover:bg-stone-400/40 hover:text-stone-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white"].join(" ")}
           >
             <Mic className="h-[18px] w-[18px]" />
           </button>
@@ -305,13 +375,8 @@ export default function UserProfileContent({
           <button
             type="button"
             title={isDeafened ? "Ativar áudio" : "Desativar áudio"}
-            onClick={() => setIsDeafened((value) => !value)}
-            className={[
-              "flex h-8 w-8 items-center justify-center rounded-md transition-colors",
-              isDeafened
-                ? "text-red-400 hover:bg-red-500/10"
-                : "text-stone-600 hover:bg-stone-400/40 hover:text-stone-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white",
-            ].join(" ")}
+            onClick={() => setIsDeafened((val) => !val)}
+            className={["flex h-8 w-8 items-center justify-center rounded-md transition-colors", isDeafened ? "text-red-400 hover:bg-red-500/10" : "text-stone-600 hover:bg-stone-400/40 hover:text-stone-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white"].join(" ")}
           >
             <Headphones className="h-[18px] w-[18px]" />
           </button>
@@ -319,38 +384,27 @@ export default function UserProfileContent({
           <button
             type="button"
             title="Configurações"
-            onClick={() => {
-              closeMenu();
-              setEditProfileModalOpen(true);
-            }}
+            onClick={() => { closeMenu(); setEditProfileModalOpen(true); }}
             className="flex h-8 w-8 items-center justify-center rounded-md text-stone-600 transition-colors hover:bg-stone-400/40 hover:text-stone-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white"
           >
             <Settings className="h-[18px] w-[18px]" />
           </button>
         </div>
 
-        {/* MENU PRINCIPAL */}
+        {/* MENU FLUTUANTE */}
         {menuOpen && (
           <div className="absolute bottom-[66px] left-1 z-[100] w-[calc(100%-8px)] rounded-lg border border-stone-300 bg-white p-1.5 shadow-2xl dark:border-zinc-800 dark:bg-[#111214]">
             <div className="mb-1 rounded-md bg-stone-100 p-3 dark:bg-[#18191c]">
               <div className="flex items-center gap-3">
                 <div className="relative shrink-0">
-                  <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-indigo-500 text-sm font-bold text-white">
-                    {avatar ? (
-                      <img src={avatar} alt={displayName} className="h-full w-full object-cover" />
+                  <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-indigo-500 text-sm font-bold text-white shadow">
+                    {resolvedAvatarUrl ? (
+                      <img src={resolvedAvatarUrl} alt={displayName} loading="eager" className="h-full w-full object-cover" />
                     ) : (
                       getInitials(displayName)
                     )}
                   </div>
-                  <span
-                    className={[
-                      "absolute bottom-0 right-0",
-                      "h-3.5 w-3.5 rounded-full",
-                      "border-[3px] border-stone-100",
-                      "dark:border-[#18191c]",
-                      currentStatus.color,
-                    ].join(" ")}
-                  />
+                  <span className={["absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-[3px] border-stone-100 dark:border-[#18191c]", currentStatus.color].join(" ")} />
                 </div>
 
                 <div className="min-w-0">
@@ -369,12 +423,8 @@ export default function UserProfileContent({
                   value={customStatus}
                   maxLength={128}
                   autoFocus
-                  onChange={(event) => setCustomStatus(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === "Escape") {
-                      setEditingStatus(false);
-                    }
-                  }}
+                  onChange={(e) => setCustomStatus(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") setEditingStatus(false); }}
                   onBlur={() => setEditingStatus(false)}
                   placeholder="O que você está fazendo?"
                   className="mt-3 w-full rounded-md border border-stone-300 bg-white px-2.5 py-1.5 text-xs text-stone-900 outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-[#232428] dark:text-white"
@@ -395,54 +445,35 @@ export default function UserProfileContent({
             </div>
 
             <div className="space-y-0.5">
-              <MenuItem
-                icon={<UserRound className="h-4 w-4" />}
-                onClick={() => {
-                  closeMenu();
-                  setProfileModalOpen(true);
-                }}
-              >
+              <MenuItem icon={<UserRound className="h-4 w-4" />} onClick={() => { closeMenu(); setProfileModalOpen(true); }}>
                 Perfil
               </MenuItem>
-
-              <MenuItem
-                icon={<Pencil className="h-4 w-4" />}
-                onClick={() => {
-                  closeMenu();
-                  setEditProfileModalOpen(true);
-                }}
-              >
+              <MenuItem icon={<Pencil className="h-4 w-4" />} onClick={() => { closeMenu(); setEditProfileModalOpen(true); }}>
                 Editar perfil
               </MenuItem>
 
               <div className="relative">
-                <MenuItem
-                  icon={<span className={["h-3 w-3 rounded-full", currentStatus.color].join(" ")} />}
-                  arrow
-                  onClick={toggleStatusMenu}
-                >
+                <MenuItem icon={<span className={["h-3 w-3 rounded-full", currentStatus.color].join(" ")} />} arrow onClick={() => setSubmenu((c) => c === "status" ? null : "status")}>
                   Status
                 </MenuItem>
 
                 {submenu === "status" && (
-                  <div className="absolute bottom-0 left-full ml-2 w-[230px] rounded-lg border border-stone-300 bg-white p-1.5 shadow-2xl dark:border-zinc-800 dark:bg-[#111214]">
+                  <div className="absolute bottom-0 left-full ml-2 w-[220px] rounded-lg border border-stone-300 bg-white p-1.5 shadow-2xl dark:border-zinc-800 dark:bg-[#111214]">
                     <div className="px-2.5 py-2">
                       <div className="text-xs font-bold text-stone-800 dark:text-white">Status</div>
-                      <div className="text-[10px] text-stone-500 dark:text-zinc-500">Escolha como você aparece</div>
                     </div>
-                    {statusOptions.map((option) => (
+                    {statusOptions.map((opt) => (
                       <button
-                        key={option.id}
+                        key={opt.id}
                         type="button"
-                        onClick={() => selectStatus(option.id)}
+                        onClick={() => { setStatus(opt.id); setSubmenu(null); }}
                         className="flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-stone-200 dark:hover:bg-zinc-800"
                       >
-                        <span className={["h-3 w-3 shrink-0 rounded-full", option.color].join(" ")} />
+                        <span className={["h-3 w-3 shrink-0 rounded-full", opt.color].join(" ")} />
                         <div className="min-w-0 flex-1">
-                          <div className="text-sm text-stone-800 dark:text-zinc-100">{option.label}</div>
-                          <div className="text-[10px] text-stone-500 dark:text-zinc-500">{option.description}</div>
+                          <div className="text-sm text-stone-800 dark:text-zinc-100">{opt.label}</div>
                         </div>
-                        {status === option.id && <Check className="h-4 w-4 text-emerald-500" />}
+                        {status === opt.id && <Check className="h-4 w-4 text-emerald-500" />}
                       </button>
                     ))}
                   </div>
@@ -451,16 +482,9 @@ export default function UserProfileContent({
 
               <Divider />
               <MenuItem icon={<Copy className="h-4 w-4" />} onClick={copyUserId}>Copiar ID do usuário</MenuItem>
-              <MenuItem
-                icon={<Settings className="h-4 w-4" />}
-                onClick={() => {
-                  closeMenu();
-                  setEditProfileModalOpen(true);
-                }}
-              >
+              <MenuItem icon={<Settings className="h-4 w-4" />} onClick={() => { closeMenu(); setEditProfileModalOpen(true); }}>
                 Configurações
               </MenuItem>
-
               <Divider />
               <MenuItem icon={<LogOut className="h-4 w-4" />} danger onClick={logout}>Sair</MenuItem>
             </div>
@@ -468,57 +492,71 @@ export default function UserProfileContent({
         )}
       </div>
 
-      {/* MODAL DE PERFIL */}
+      {/* MODAL DE PERFIL COMPLETO (VISUALIZAÇÃO) */}
       <Modal isOpen={profileModalOpen} onClose={() => setProfileModalOpen(false)} title="Perfil">
-        <div className="-mx-1 overflow-hidden rounded-lg">
-          <div className="relative h-32 overflow-hidden rounded-t-lg bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500">
-            {banner && <img src={banner} alt="" className="absolute inset-0 h-full w-full object-cover" />}
+        <div className="overflow-hidden rounded-xl bg-white shadow-2xl dark:bg-[#111214] border border-stone-200 dark:border-zinc-800">
+          {/* Banner */}
+          <div className="relative h-36 w-full bg-indigo-600 overflow-hidden">
+            {resolvedBannerUrl ? (
+              <img src={resolvedBannerUrl} alt="Banner" loading="eager" className="absolute inset-0 h-full w-full object-cover" />
+            ) : (
+              <div className="h-full w-full bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500" />
+            )}
           </div>
 
-          <div className="relative px-5 pb-5">
-            <div className="-mt-10 mb-3">
+          <div className="relative px-6 pb-6 pt-4">
+            {/* Avatar */}
+            <div className="-mt-14 mb-4 flex items-end justify-between">
               <div className="relative inline-block">
-                <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border-[5px] border-white bg-indigo-500 text-xl font-bold text-white dark:border-zinc-950">
-                  {avatar ? (
-                    <img src={avatar} alt={displayName} className="h-full w-full object-cover" />
+                <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border-[6px] border-white bg-indigo-500 text-2xl font-bold text-white dark:border-[#111214] shadow-lg">
+                  {resolvedAvatarUrl ? (
+                    <img src={resolvedAvatarUrl} alt={displayName} loading="eager" className="h-full w-full object-cover" />
                   ) : (
                     getInitials(displayName)
                   )}
                 </div>
-                <span className={["absolute bottom-0 right-0", "h-5 w-5 rounded-full", "border-[4px] border-white", "dark:border-zinc-950", currentStatus.color].join(" ")} />
+                <span className={["absolute bottom-1 right-1 h-5 w-5 rounded-full border-[4px] border-white dark:border-[#111214]", currentStatus.color].join(" ")} />
               </div>
+
+              <button
+                type="button"
+                onClick={() => { setProfileModalOpen(false); setEditProfileModalOpen(true); }}
+                className="rounded-md bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow transition-colors hover:bg-indigo-500"
+              >
+                Editar Perfil
+              </button>
             </div>
 
             <div>
-              <h2 className="text-xl font-bold text-zinc-900 dark:text-white">{displayName}</h2>
-              <p className="text-sm text-zinc-500 dark:text-zinc-400">@{username}</p>
+              <h2 className="text-xl font-bold text-stone-900 dark:text-white">{displayName}</h2>
+              <p className="text-sm font-medium text-stone-500 dark:text-zinc-400">@{username}</p>
             </div>
 
             {customStatus && (
-              <div className="mt-4 rounded-lg bg-zinc-100 px-3 py-2.5 dark:bg-zinc-900">
-                <div className="mb-1 flex items-center gap-2">
+              <div className="mt-4 rounded-lg bg-stone-100 p-3 dark:bg-zinc-900">
+                <div className="flex items-center gap-2">
                   <span className={["h-2.5 w-2.5 rounded-full", currentStatus.color].join(" ")} />
-                  <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">{currentStatus.label}</span>
+                  <span className="text-xs font-semibold text-stone-700 dark:text-zinc-300">{currentStatus.label}</span>
                 </div>
-                <p className="text-sm text-zinc-600 dark:text-zinc-400">{customStatus}</p>
+                <p className="mt-1 text-sm text-stone-600 dark:text-zinc-400">{customStatus}</p>
               </div>
             )}
 
-            {bio && (
+            {user?.bio && (
               <div className="mt-4">
-                <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-zinc-500">Sobre mim</p>
-                <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">{bio}</p>
+                <h4 className="mb-1 text-[11px] font-bold uppercase tracking-wider text-stone-500 dark:text-zinc-400">Sobre mim</h4>
+                <p className="whitespace-pre-wrap text-sm leading-relaxed text-stone-700 dark:text-zinc-300">{user.bio}</p>
               </div>
             )}
 
-            <div className="mt-5 border-t border-zinc-200 pt-4 dark:border-zinc-800">
-              <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-zinc-500">ID do usuário</p>
+            <div className="mt-6 border-t border-stone-200 pt-4 dark:border-zinc-800">
+              <h4 className="mb-1 text-[11px] font-bold uppercase tracking-wider text-stone-500 dark:text-zinc-400">ID do usuário</h4>
               <button
                 type="button"
                 onClick={copyUserId}
-                className="flex max-w-full items-center gap-2 rounded-md px-1 py-1 text-xs text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-white"
+                className="flex items-center gap-2 rounded-md px-1 py-1 text-xs text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-white"
               >
-                <Copy className="h-3.5 w-3.5 shrink-0" />
+                <Copy className="h-3.5 w-3.5" />
                 <span className="truncate">{userId}</span>
               </button>
             </div>
@@ -526,59 +564,79 @@ export default function UserProfileContent({
         </div>
       </Modal>
 
-      {/* MODAL EDITAR PERFIL */}
+      {/* MODAL EDITAR PERFIL COMPLETO */}
       <Modal isOpen={editProfileModalOpen} onClose={() => setEditProfileModalOpen(false)} title="Editar perfil">
-        <div className="space-y-4">
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            Atualize suas informações visuais para que seus amigos possam te reconhecer melhor.
+        <div className="space-y-5">
+          <p className="text-sm text-stone-500 dark:text-zinc-400">
+            Personalize sua aparência com banner, avatar e biografia.
           </p>
 
-          <div className="space-y-4 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+          <div className="space-y-4 rounded-xl border border-stone-200 p-4 dark:border-zinc-800 bg-stone-50 dark:bg-zinc-900/40">
+            {/* Banner Preview & Upload */}
+            <div>
+              <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wider text-stone-500 dark:text-zinc-400">
+                Banner do Perfil
+              </label>
+              <div className="relative h-28 w-full overflow-hidden rounded-lg bg-indigo-600 mb-2 border border-stone-200 dark:border-zinc-800">
+                {resolvedEditBannerUrl ? (
+                  <img src={resolvedEditBannerUrl} alt="Banner Preview" loading="eager" className="absolute inset-0 h-full w-full object-cover" />
+                ) : (
+                  <div className="h-full w-full bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500" />
+                )}
+                <button
+                  type="button"
+                  onClick={() => editBannerRef.current?.click()}
+                  disabled={isUploadingBanner}
+                  className="absolute bottom-2 right-2 flex items-center gap-1.5 rounded-md bg-black/60 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur transition hover:bg-black/80"
+                >
+                  {isUploadingBanner ? <Loader2 size={14} className="animate-spin" /> : <ImagePlus size={14} />}
+                  Alterar banner
+                </button>
+              </div>
+            </div>
+
+            {/* Avatar Preview & Upload */}
+            <div>
+              <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wider text-stone-500 dark:text-zinc-400">
+                Avatar do Usuário
+              </label>
+              <div className="flex items-center gap-4">
+                <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-indigo-500 text-lg font-bold text-white shadow">
+                  {resolvedEditAvatarUrl ? (
+                    <img src={resolvedEditAvatarUrl} alt="Avatar Preview" loading="eager" className="h-full w-full object-cover" />
+                  ) : (
+                    getInitials(displayName)
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => editAvatarRef.current?.click()}
+                  disabled={isUploadingAvatar}
+                  className="flex items-center gap-2 rounded-lg border border-stone-300 bg-white px-4 py-2 text-xs font-semibold text-stone-700 shadow-sm transition hover:bg-stone-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                >
+                  {isUploadingAvatar ? <Loader2 size={15} className="animate-spin" /> : <ImagePlus size={15} />}
+                  {isUploadingAvatar ? "Enviando..." : "Alterar avatar"}
+                </button>
+              </div>
+            </div>
+
             {/* Nome de Exibição */}
             <div>
-              <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-zinc-500">
+              <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wider text-stone-500 dark:text-zinc-400">
                 Nome de Exibição
               </label>
               <input
                 type="text"
                 value={editGlobalName}
                 onChange={(e) => setEditGlobalName(e.target.value)}
-                placeholder="Como você quer ser chamado?"
-                className="h-10 w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 text-sm text-zinc-900 outline-none transition-colors focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
-              />
-            </div>
-
-            {/* URL do Avatar */}
-            <div>
-              <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-zinc-500">
-                URL do Avatar (Imagem)
-              </label>
-              <input
-                type="text"
-                value={editAvatarUrl}
-                onChange={(e) => setEditAvatarUrl(e.target.value)}
-                placeholder="https://exemplo.com/sua-foto.jpg"
-                className="h-10 w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 text-sm text-zinc-900 outline-none transition-colors focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
-              />
-            </div>
-
-            {/* URL do Banner */}
-            <div>
-              <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-zinc-500">
-                URL do Banner (Capa)
-              </label>
-              <input
-                type="text"
-                value={editBannerUrl}
-                onChange={(e) => setEditBannerUrl(e.target.value)}
-                placeholder="https://exemplo.com/sua-capa.jpg"
-                className="h-10 w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 text-sm text-zinc-900 outline-none transition-colors focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+                placeholder="Seu nome visível"
+                className="h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm text-stone-900 outline-none transition-colors focus:border-indigo-500 dark:border-zinc-700 dark:bg-black dark:text-white"
               />
             </div>
 
             {/* Biografia */}
             <div>
-              <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-zinc-500">
+              <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wider text-stone-500 dark:text-zinc-400">
                 Sobre Mim
               </label>
               <textarea
@@ -586,7 +644,7 @@ export default function UserProfileContent({
                 onChange={(e) => setEditBio(e.target.value)}
                 placeholder="Conte um pouco sobre você..."
                 rows={3}
-                className="w-full resize-none rounded-md border border-zinc-300 bg-zinc-50 p-3 text-sm text-zinc-900 outline-none transition-colors focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+                className="w-full resize-none rounded-md border border-stone-300 bg-white p-3 text-sm text-stone-900 outline-none transition-colors focus:border-indigo-500 dark:border-zinc-700 dark:bg-black dark:text-white"
               />
             </div>
           </div>
@@ -595,14 +653,14 @@ export default function UserProfileContent({
             <button
               onClick={() => setEditProfileModalOpen(false)}
               disabled={isSaving}
-              className="rounded-md px-4 py-2 text-sm font-semibold text-zinc-700 transition-colors hover:underline dark:text-zinc-300"
+              className="rounded-md px-4 py-2 text-sm font-semibold text-stone-600 transition-colors hover:underline dark:text-zinc-400"
             >
               Cancelar
             </button>
             <button
               onClick={handleSaveProfile}
-              disabled={isSaving}
-              className="flex items-center justify-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-500 disabled:opacity-50"
+              disabled={isSaving || isUploadingAvatar || isUploadingBanner}
+              className="flex items-center justify-center rounded-md bg-indigo-600 px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-500 disabled:opacity-50 shadow"
             >
               {isSaving ? "Salvando..." : "Salvar alterações"}
             </button>

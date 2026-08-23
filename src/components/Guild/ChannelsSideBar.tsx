@@ -27,19 +27,61 @@ export default function ChannelsSidebar({
 }: ChannelsSidebarProps) {
   const router = useRouter();
   
-  // Modais e Menus
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isCreateChannelModalOpen, setIsCreateChannelModalOpen] = useState(false);
   
-  // Criação de Canal
   const [channelName, setChannelName] = useState("");
   const [channelType, setChannelType] = useState<"GUILD_TEXT" | "GUILD_VOICE">("GUILD_TEXT");
   const [isLoading, setIsLoading] = useState(false);
+  const [resolvedBannerUrl, setResolvedBannerUrl] = useState<string>("");
 
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Fecha o menu dropdown ao clicar fora
+  useEffect(() => {
+    let isMounted = true;
+
+    async function resolveBanner() {
+      if (!guild?.bannerUrl) {
+        setResolvedBannerUrl("");
+        return;
+      }
+
+      if (
+        guild.bannerUrl.startsWith("http://") ||
+        guild.bannerUrl.startsWith("https://") ||
+        guild.bannerUrl.startsWith("blob:") ||
+        guild.bannerUrl.startsWith("/")
+      ) {
+        if (isMounted) setResolvedBannerUrl(guild.bannerUrl);
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          `/api/files?key=${encodeURIComponent(guild.bannerUrl)}`,
+          { cache: "no-store" }
+        );
+
+        const data = await response.json();
+
+        if (isMounted && data.success && data.url) {
+          setResolvedBannerUrl(data.url);
+        } else if (isMounted) {
+          setResolvedBannerUrl(guild.bannerUrl);
+        }
+      } catch (error) {
+        if (isMounted) setResolvedBannerUrl(guild.bannerUrl);
+      }
+    }
+
+    resolveBanner();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [guild?.bannerUrl]);
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -50,7 +92,6 @@ export default function ChannelsSidebar({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // VERIFICAÇÃO DE PERMISSÕES
   const isOwner = guild.ownerId === currentMember?.userId;
   const hasAdminRole = currentMember?.roles?.some((r: any) => 
     r.permissions.includes("8") || r.permissions.includes("ADMIN") || r.permissions.includes("MANAGE_CHANNELS")
@@ -94,19 +135,17 @@ export default function ChannelsSidebar({
   return (
     <>
       <div className="relative flex w-60 shrink-0 flex-col bg-stone-300/50 dark:bg-[#111214]">
-        
-        {/* HEADER COM BANNER E DROPDOWN */}
-        <div ref={dropdownRef} className="relative w-full">
-          {guild.bannerUrl ? (
+        <div ref={dropdownRef} className="relative w-full z-30">
+          {resolvedBannerUrl ? (
             <div 
               onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-              className="group relative flex h-32 w-full cursor-pointer items-end justify-between overflow-hidden bg-stone-400 transition-all dark:bg-zinc-800"
+              className="group relative flex h-32 w-full cursor-pointer items-start justify-between overflow-hidden bg-stone-400 transition-all dark:bg-zinc-800"
             >
-              <img src={guild.bannerUrl} alt="Banner" className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent transition-opacity group-hover:bg-black/40" />
-              <div className="relative z-10 flex w-full items-center justify-between p-4 pb-3 font-bold text-white text-shadow-sm">
+              <img src={resolvedBannerUrl} alt="Banner" className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
+              <div className="absolute inset-0 bg-gradient-to-b from-black/80 via-black/20 to-transparent transition-opacity group-hover:bg-black/40" />
+              <div className="relative z-10 flex w-full items-center justify-between p-4 pt-3 font-bold text-white text-shadow-sm">
                 <span className="truncate">{guild.name}</span>
-                <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-hover:opacity-100 opacity-70" />
+                <ChevronDown className={`h-4 w-4 shrink-0 transition-transform duration-200 ${isDropdownOpen ? "rotate-180" : ""}`} />
               </div>
             </div>
           ) : (
@@ -115,13 +154,12 @@ export default function ChannelsSidebar({
               className="flex h-12 shrink-0 cursor-pointer items-center justify-between border-b border-stone-300 px-4 font-bold shadow-sm transition-colors hover:bg-stone-300/80 dark:border-zinc-800/60 dark:text-white dark:hover:bg-zinc-800/50"
             >
               <span className="truncate">{guild.name}</span>
-              <ChevronDown className={`h-4 w-4 transition-transform ${isDropdownOpen ? "rotate-180" : ""}`} />
+              <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${isDropdownOpen ? "rotate-180" : ""}`} />
             </div>
           )}
 
-          {/* MENU DROPDOWN DE OPÇÕES */}
           {isDropdownOpen && (
-            <div className="absolute left-2 right-2 top-full z-50 mt-2 rounded-md border border-stone-200 bg-white p-2 shadow-lg dark:border-zinc-800 dark:bg-[#111214]">
+            <div className="absolute left-2 right-2 top-full z-[9999] mt-2 rounded-md border border-stone-200 bg-white p-2 shadow-2xl dark:border-zinc-800 dark:bg-[#111214]">
               {canManageChannels && (
                 <button 
                   onClick={() => { setIsSettingsModalOpen(true); setIsDropdownOpen(false); }}
@@ -151,7 +189,6 @@ export default function ChannelsSidebar({
           )}
         </div>
 
-        {/* LISTA DE CANAIS */}
         <div className="flex-1 overflow-y-auto p-2">
           <div className="flex items-center justify-between px-2 pb-1 pt-4 group">
             <span className="text-[11px] font-bold uppercase tracking-wider text-stone-500 dark:text-zinc-400">
@@ -172,7 +209,6 @@ export default function ChannelsSidebar({
           <div className="mb-4 space-y-0.5 mt-1">
             {guild.channels?.map((channel: any) => {
               const isVoice = channel.type === "GUILD_VOICE";
-              // Destaca o canal corretamente dependendo se é voz ou texto
               const isActive = isVoice 
                 ? activeVoiceChannel?.id === channel.id 
                 : activeChannel?.id === channel.id;
@@ -200,7 +236,6 @@ export default function ChannelsSidebar({
         <UserProfileSideBar user={currentMember?.user ?? null} />
       </div>
 
-      {/* MODAL PEQUENO: CRIAR CANAL */}
       <Modal isOpen={isCreateChannelModalOpen} onClose={() => setIsCreateChannelModalOpen(false)} title="Criar Canal">
         <div className="space-y-4">
           <div className="space-y-2">
@@ -236,7 +271,6 @@ export default function ChannelsSidebar({
         </div>
       </Modal>
 
-      {/* MODAL GIGANTE: CONFIGURAÇÕES DA GUILD */}
       <GuildSettingsModal 
         isOpen={isSettingsModalOpen} 
         onClose={() => setIsSettingsModalOpen(false)} 

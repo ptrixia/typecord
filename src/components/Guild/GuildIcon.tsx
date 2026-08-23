@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -29,6 +30,99 @@ export default function GuildIcon({ guild }: GuildIconProps) {
     params?.id === guild.id.toString() ||
     params?.guildId === guild.id.toString();
 
+  const [resolvedIconUrl, setResolvedIconUrl] = useState<string>("");
+  const [resolvedBannerUrl, setResolvedBannerUrl] = useState<string>("");
+
+  // Resolve a URL do ícone via /api/files (MinIO)
+  useEffect(() => {
+    let isMounted = true;
+
+    async function resolveIcon() {
+      if (!guild.iconUrl) {
+        setResolvedIconUrl("");
+        return;
+      }
+
+      if (
+        guild.iconUrl.startsWith("http://") ||
+        guild.iconUrl.startsWith("https://") ||
+        guild.iconUrl.startsWith("blob:") ||
+        guild.iconUrl.startsWith("/")
+      ) {
+        if (isMounted) setResolvedIconUrl(guild.iconUrl);
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          `/api/files?key=${encodeURIComponent(guild.iconUrl)}`,
+          { cache: "no-store" }
+        );
+
+        const data = await response.json();
+
+        if (isMounted && data.success && data.url) {
+          setResolvedIconUrl(data.url);
+        } else if (isMounted) {
+          setResolvedIconUrl(guild.iconUrl);
+        }
+      } catch (error) {
+        if (isMounted) setResolvedIconUrl(guild.iconUrl);
+      }
+    }
+
+    resolveIcon();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [guild.iconUrl]);
+
+  // Resolve a URL do banner via /api/files (MinIO)
+  useEffect(() => {
+    let isMounted = true;
+
+    async function resolveBanner() {
+      if (!guild.bannerUrl) {
+        setResolvedBannerUrl("");
+        return;
+      }
+
+      if (
+        guild.bannerUrl.startsWith("http://") ||
+        guild.bannerUrl.startsWith("https://") ||
+        guild.bannerUrl.startsWith("blob:") ||
+        guild.bannerUrl.startsWith("/")
+      ) {
+        if (isMounted) setResolvedBannerUrl(guild.bannerUrl);
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          `/api/files?key=${encodeURIComponent(guild.bannerUrl)}`,
+          { cache: "no-store" }
+        );
+
+        const data = await response.json();
+
+        if (isMounted && data.success && data.url) {
+          setResolvedBannerUrl(data.url);
+        } else if (isMounted) {
+          setResolvedBannerUrl(guild.bannerUrl);
+        }
+      } catch (error) {
+        if (isMounted) setResolvedBannerUrl(guild.bannerUrl);
+      }
+    }
+
+    resolveBanner();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [guild.bannerUrl]);
+
   return (
     <div className="relative group flex items-center justify-center w-full py-1">
       
@@ -48,7 +142,7 @@ export default function GuildIcon({ guild }: GuildIconProps) {
       <Tooltip>
         <TooltipTrigger>
           {/* ========================================== */}
-          {/* ÍCONE DA GUILD                             */}
+          {/* ÍCONE DA GUILD                            */}
           {/* ========================================== */}
           <Link
             href={`/channels/${guild.id}`}
@@ -58,9 +152,9 @@ export default function GuildIcon({ guild }: GuildIconProps) {
                 : "rounded-full bg-zinc-300 text-zinc-800 hover:rounded-2xl hover:bg-indigo-500 hover:text-white dark:bg-neutral-900 dark:text-zinc-200"
             }`}
           >
-            {guild.iconUrl ? (
+            {resolvedIconUrl ? (
               <Image
-                src={guild.iconUrl}
+                src={resolvedIconUrl}
                 alt={guild.name}
                 width={48}
                 height={48}
@@ -82,12 +176,21 @@ export default function GuildIcon({ guild }: GuildIconProps) {
           sideOffset={20}
           className="w-72 p-0 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-[#111214] text-zinc-950 dark:text-zinc-50 z-[100]"
         >
-          {/* Banner */}
+          {/* Banner do Servidor
+          {resolvedBannerUrl ? (
+            <div className="relative h-28 w-full overflow-hidden bg-zinc-800">
+              <Image
+                src={resolvedBannerUrl}
+                alt="Banner"
+                fill
+                className="object-cover"
+              />
+            </div>
+          ) : (
+            <div className="h-20 w-full bg-indigo-600/30" />
+          )} */}
 
-
-          <div className="relative p-4 pt-10">
-
-
+          <div className="relative p-4 pt-3">
             {/* Nome e Descrição */}
             <div>
               <h3 className="font-bold text-base leading-tight truncate">
