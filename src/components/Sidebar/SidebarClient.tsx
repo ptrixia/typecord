@@ -1,0 +1,69 @@
+"use client";
+
+import { useState } from "react";
+import { Plus } from "lucide-react";
+
+import GuildIcon from "../Guild/GuildIcon";
+import DirectMessagesIcon from "../DirectMessages/DirectMessagesIcon";
+import GuildModal from "./GuildModal";
+import { PartialGuild } from "@/actions/guilds";
+
+interface SidebarClientProps {
+  initialGuilds: PartialGuild[];
+}
+
+export default function SidebarClient({ initialGuilds }: SidebarClientProps) {
+  const [isGuildModalOpen, setIsGuildModalOpen] = useState(false);
+
+  return (
+    <>
+      <div
+        className="
+          m-1 flex h-full w-full max-w-24 flex-col items-center
+          rounded-t-3xl bg-white py-3 font-sans dark:bg-black
+        "
+      >
+        <DirectMessagesIcon />
+
+        <div
+          className="
+            my-2 h-[2px] w-8 shrink-0 rounded-full bg-zinc-300
+            dark:bg-zinc-800
+          "
+        />
+
+        <div
+          className="
+            flex w-full flex-1 flex-col items-center gap-2 overflow-y-auto
+            [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden
+          "
+        >
+          {initialGuilds.map((guild) => (
+            <GuildIcon key={guild.id} guild={guild} />
+          ))}
+
+          <button
+            type="button"
+            onClick={() => setIsGuildModalOpen(true)}
+            title="Adicionar uma guild"
+            className="
+              group flex h-12 w-12 shrink-0 items-center justify-center
+              rounded-full border border-dashed border-zinc-300
+              bg-zinc-100 text-zinc-500 transition-all duration-200
+              hover:scale-105 hover:border-emerald-500 hover:bg-emerald-500 hover:text-white
+              dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400
+              dark:hover:border-emerald-500 dark:hover:bg-emerald-500 dark:hover:text-white
+            "
+          >
+            <Plus className="h-6 w-6 transition-transform duration-200 group-hover:rotate-90" />
+          </button>
+        </div>
+      </div>
+
+      <GuildModal
+        isOpen={isGuildModalOpen}
+        onClose={() => setIsGuildModalOpen(false)}
+      />
+    </>
+  );
+}

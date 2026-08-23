@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Hash, Search, Users, Bell, Pin, Plus, Gift, StickyNote, Smile } from "lucide-react";
+import { Hash, Search, Users, Bell, Pin, Plus, Gift, StickyNote, Smile, Volume2 } from "lucide-react";
 import GifPicker from "./GifPicker";
 import EmojiPicker, { Theme } from "emoji-picker-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import VideoPlayer from "../VideoPlayer";
+import SearchCommand from "../SearchCommand";
 
 interface Message {
     id: number;
@@ -17,17 +18,21 @@ interface Message {
     content: string;
 }
 
-export default function ChatArea() {
+interface ChatAreaProps {
+    channel: any;
+}
+
+export default function ChatArea({ channel }: ChatAreaProps) {
     const [isMounted, setIsMounted] = useState(false);
 
     const [messages, setMessages] = useState<Message[]>([
         {
             id: 1,
-            author: "username",
+            author: "teste",
             authorColor: "text-red-500",
             avatarColor: "bg-blue-500",
-            time: new Date("2023-04-01T08:58:00").toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-            content: "content",
+            time: new Date("2026-08-22T21:00:00").toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            content: "Teste",
         },
     ]);
 
@@ -105,23 +110,37 @@ export default function ChatArea() {
         return null; 
     }
 
+
+    if (!channel) {
+        return (
+            <div className="flex flex-1 items-center justify-center bg-transparent">
+                <span className="text-zinc-500">Nenhum canal selecionado</span>
+            </div>
+        );
+    }
+
+    const isVoiceChannel = channel.type === "GUILD_VOICE";
+
     return (
         <div className="relative flex min-w-0 flex-1 flex-col bg-transparent">
             <div className="flex h-12 items-center justify-between border-b border-stone-300 px-4 shadow-sm dark:border-zinc-800/50">
                 <div className="flex items-center gap-2 font-semibold">
-                    <Hash className="h-5 w-5 text-stone-500" />
-                    nomedocanal
+                    {isVoiceChannel ? (
+                        <Volume2 className="h-5 w-5 text-stone-500" />
+                    ) : (
+                        <Hash className="h-5 w-5 text-stone-500" />
+                    )}
+                    {channel.name}
                 </div>
                 <div className="flex items-center gap-4 text-stone-500 dark:text-zinc-400">
                     <Bell className="h-5 w-5 cursor-pointer hover:text-stone-700 dark:hover:text-zinc-200" />
                     <Pin className="h-5 w-5 cursor-pointer hover:text-stone-700 dark:hover:text-zinc-200" />
                     <Users className="h-5 w-5 cursor-pointer hover:text-stone-700 dark:hover:text-zinc-200" />
-                    <div className="flex h-6 w-32 items-center rounded bg-stone-100 px-2 text-xs dark:bg-zinc-900">
-                        <Search className="mr-1 h-3 w-3" /> Search...
-                    </div>
+                    <SearchCommand />
                 </div>
             </div>
 
+            {/* MENSAGENS */}
             <div className="custom-scrollbar flex-1 overflow-y-auto p-4 overflow-x-hidden">
                 <div className="flex flex-col gap-4">
                     {messages.map((msg) => (
@@ -164,7 +183,6 @@ export default function ChatArea() {
                                             p: ({ node, ...props }) => (
                                                 <p {...props} className="text-sm text-stone-800 dark:text-zinc-200 break-words whitespace-pre-wrap" />
                                             ),
-                                            // Intercepta links normais. Se for .mp4, transforma em player de vídeo customizado!
                                             a: ({ node, ...props }) => {
                                                 const href = props.href || "";
                                                 const isVideo = href.endsWith(".mp4") || href.endsWith(".webm") || href.endsWith(".mov");
@@ -172,10 +190,7 @@ export default function ChatArea() {
                                                 if (isVideo) {
                                                     return (
                                                         <div className="max-w-[400px] overflow-hidden rounded-xl border border-zinc-200 bg-black shadow-lg dark:border-zinc-800">
-                                                            <VideoPlayer
-                                                                src={href}
-                                   
-                                                            />
+                                                            <VideoPlayer src={href} />
                                                         </div>
                                                     );
                                                 }
@@ -223,6 +238,7 @@ export default function ChatArea() {
                 </div>
             </div>
 
+
             <div className="relative p-4">
                 {isGifOpen && (
                     <div className="absolute bottom-[80px] right-24 z-50">
@@ -240,94 +256,42 @@ export default function ChatArea() {
                     </div>
                 )}
 
-               <div className="flex min-h-[44px] w-full items-center gap-3 rounded-lg bg-stone-300/50 px-3 py-2 dark:bg-[#383a40]">
-  <Plus
-    className="
-      h-5 w-5 shrink-0 cursor-pointer
-      text-stone-500
-      hover:text-stone-800
-      dark:text-zinc-400
-      dark:hover:text-zinc-200
-    "
-  />
+                <div className="flex min-h-[44px] w-full items-center gap-3 rounded-lg bg-stone-300/50 px-3 py-2 dark:bg-[#383a40]">
+                    <Plus className="h-5 w-5 shrink-0 cursor-pointer text-stone-500 hover:text-stone-800 dark:text-zinc-400 dark:hover:text-zinc-200" />
 
-  <textarea
-    ref={textareaRef}
-    value={inputValue}
-    onChange={handleInput}
-    onKeyDown={handleKeyDown}
-    maxLength={800}
-    rows={1}
-    placeholder="Conversar em #bate-papo"
-    className="
-      custom-scrollbar
-      flex-1
-      resize-none
-      self-center
-      bg-transparent
-      text-sm
-      leading-5
-      text-stone-900
-      outline-none
-      placeholder:text-stone-500
-      dark:text-zinc-100
-      dark:placeholder:text-zinc-400
-      break-words
-    "
-  />
+                    <textarea
+                        ref={textareaRef}
+                        value={inputValue}
+                        onChange={handleInput}
+                        onKeyDown={handleKeyDown}
+                        maxLength={800}
+                        rows={1}
+                        placeholder={`Conversar em #${channel.name}`}
+                        className="custom-scrollbar flex-1 resize-none self-center bg-transparent text-sm leading-5 text-stone-900 outline-none placeholder:text-stone-500 dark:text-zinc-100 dark:placeholder:text-zinc-400 break-words"
+                    />
 
-  <div className="flex shrink-0 items-center gap-3 text-stone-500 dark:text-zinc-400">
-    <Gift
-      className="
-        h-5 w-5 cursor-pointer
-        hover:text-stone-800
-        dark:hover:text-zinc-200
-      "
-    />
+                    <div className="flex shrink-0 items-center gap-3 text-stone-500 dark:text-zinc-400">
+                        <Gift className="h-5 w-5 cursor-pointer hover:text-stone-800 dark:hover:text-zinc-200" />
 
-    <div
-      onClick={toggleGif}
-      className={`
-        flex cursor-pointer items-center justify-center
-        rounded px-1.5 py-0.5
-        text-xs font-bold
-        hover:bg-stone-300
-        hover:text-stone-800
-        dark:hover:bg-zinc-600
-        dark:hover:text-zinc-200
-        ${
-          isGifOpen
-            ? "bg-stone-300 text-stone-800 dark:bg-zinc-600 dark:text-zinc-200"
-            : ""
-        }
-      `}
-    >
-      GIF
-    </div>
+                        <div
+                            onClick={toggleGif}
+                            className={`flex cursor-pointer items-center justify-center rounded px-1.5 py-0.5 text-xs font-bold hover:bg-stone-300 hover:text-stone-800 dark:hover:bg-zinc-600 dark:hover:text-zinc-200 ${
+                                isGifOpen ? "bg-stone-300 text-stone-800 dark:bg-zinc-600 dark:text-zinc-200" : ""
+                            }`}
+                        >
+                            GIF
+                        </div>
 
-    <StickyNote
-      className="
-        h-5 w-5 cursor-pointer
-        hover:text-stone-800
-        dark:hover:text-zinc-200
-      "
-    />
+                        <StickyNote className="h-5 w-5 cursor-pointer hover:text-stone-800 dark:hover:text-zinc-200" />
 
-    <Smile
-      onClick={toggleEmoji}
-      className={`
-        h-5 w-5 cursor-pointer
-        hover:text-stone-800
-        dark:hover:text-zinc-200
-        ${
-          isEmojiOpen
-            ? "text-stone-800 dark:text-zinc-200"
-            : ""
-        }
-      `}
-    />
-  </div>
-</div>
+                        <Smile
+                            onClick={toggleEmoji}
+                            className={`h-5 w-5 cursor-pointer hover:text-stone-800 dark:hover:text-zinc-200 ${
+                                isEmojiOpen ? "text-stone-800 dark:text-zinc-200" : ""
+                            }`}
+                        />
+                    </div>
+                </div>
             </div>
         </div>
     );

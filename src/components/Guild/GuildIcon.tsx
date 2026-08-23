@@ -25,7 +25,7 @@ export default function GuildIcon({ guild }: GuildIconProps) {
     <Tooltip>
       <TooltipTrigger>
         <Link
-          href={`/guilds/${guild.id}`}
+          href={`/channels/${guild.id}`}
           className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-300 text-zinc-800 transition-all hover:rounded-2xl dark:bg-neutral-900 dark:text-zinc-200"
         >
           {guild.icon ? (
