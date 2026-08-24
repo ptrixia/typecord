@@ -21,21 +21,27 @@ export default function Navbar() {
     try {
       const { getCurrentWindow } = await import("@tauri-apps/api/window");
       await getCurrentWindow().minimize();
-    } catch {}
+    } catch (error) {
+      console.error("Erro ao minimizar:", error);
+    }
   };
 
   const handleMaximize = async () => {
     try {
       const { getCurrentWindow } = await import("@tauri-apps/api/window");
       await getCurrentWindow().toggleMaximize();
-    } catch {}
+    } catch (error) {
+      console.error("Erro ao maximizar:", error);
+    }
   };
 
   const handleClose = async () => {
     try {
       const { getCurrentWindow } = await import("@tauri-apps/api/window");
       await getCurrentWindow().close();
-    } catch {}
+    } catch (error) {
+      console.error("Erro ao fechar:", error);
+    }
   };
 
   return (
@@ -45,7 +51,8 @@ export default function Navbar() {
     >
       <div data-tauri-drag-region className="h-full flex-1" />
 
-      <div className="flex h-full items-center gap-1 px-2">
+      {/* data-tauri-no-drag impede que o arrastar da janela interfira nos cliques dos botões */}
+      <div data-tauri-no-drag className="flex h-full items-center gap-1 px-2">
         <ThemeToggle />
 
         {isDesktop && (
