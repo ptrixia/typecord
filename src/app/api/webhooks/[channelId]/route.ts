@@ -78,7 +78,7 @@ export async function POST(
       authorColor: "text-rose-500", 
       avatarColor: "bg-rose-600",
       avatarUrl: avatarUrl || "https://ui-avatars.com/api/?name=W+H&background=e11d48&color=fff",
-      time: newMessage.createdAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+      createdAt: newMessage.createdAt.toISOString(),
       content: newMessage.content,
       isWebhook: true,
     };

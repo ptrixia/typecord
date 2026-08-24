@@ -223,59 +223,59 @@ export default function VideoPlayer({
     };
   }, []);
 
-  useEffect(() => {
-    const handleKeyboard = (event: KeyboardEvent) => {
-      const activeElement = document.activeElement;
+  // useEffect(() => {
+  //   const handleKeyboard = (event: KeyboardEvent) => {
+  //     const activeElement = document.activeElement;
 
-      if (
-        activeElement instanceof HTMLInputElement ||
-        activeElement instanceof HTMLButtonElement
-      ) {
-        return;
-      }
+  //     if (
+  //       activeElement instanceof HTMLInputElement ||
+  //       activeElement instanceof HTMLButtonElement
+  //     ) {
+  //       return;
+  //     }
 
-      switch (event.code) {
-        case "Space":
-          event.preventDefault();
-          togglePlay();
-          break;
+  //     switch (event.code) {
+  //       case "Space":
+  //         event.preventDefault();
+  //         togglePlay();
+  //         break;
 
-        case "KeyM":
-          toggleMute();
-          break;
+  //       case "KeyM":
+  //         toggleMute();
+  //         break;
 
-        case "KeyF":
-          toggleFullscreen();
-          break;
+  //       case "KeyF":
+  //         toggleFullscreen();
+  //         break;
 
-        case "ArrowRight":
-          if (videoRef.current) {
-            videoRef.current.currentTime = Math.min(
-              videoRef.current.currentTime + 5,
-              videoRef.current.duration,
-            );
-          }
-          revealControls();
-          break;
+  //       case "ArrowRight":
+  //         if (videoRef.current) {
+  //           videoRef.current.currentTime = Math.min(
+  //             videoRef.current.currentTime + 5,
+  //             videoRef.current.duration,
+  //           );
+  //         }
+  //         revealControls();
+  //         break;
 
-        case "ArrowLeft":
-          if (videoRef.current) {
-            videoRef.current.currentTime = Math.max(
-              videoRef.current.currentTime - 5,
-              0,
-            );
-          }
-          revealControls();
-          break;
-      }
-    };
+  //       case "ArrowLeft":
+  //         if (videoRef.current) {
+  //           videoRef.current.currentTime = Math.max(
+  //             videoRef.current.currentTime - 5,
+  //             0,
+  //           );
+  //         }
+  //         revealControls();
+  //         break;
+  //     }
+  //   };
 
-    window.addEventListener("keydown", handleKeyboard);
+  //   window.addEventListener("keydown", handleKeyboard);
 
-    return () => {
-      window.removeEventListener("keydown", handleKeyboard);
-    };
-  }, [isPlaying, isMuted]);
+  //   return () => {
+  //     window.removeEventListener("keydown", handleKeyboard);
+  //   };
+  // }, [isPlaying, isMuted]);
 
   return (
     <div

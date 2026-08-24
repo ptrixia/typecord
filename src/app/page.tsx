@@ -26,7 +26,7 @@ export default function LandingPage() {
       <main className="flex-1 flex flex-col items-center justify-center text-center px-6 py-12 relative overflow-hidden">
         
         {/* Detalhes visuais de fundo inspirados no estilo Discord */}
-        <div className="absolute inset-0 pointer-events-none opacity-10 dark:opacity-5 bg-[radial-gradient(#fff_1px,transparent_1px)] [background-size:16px_16px]"></div>
+        <div className="absolute inset-0 pointer-events-none opacity-10 dark:opacity-5 bg-[radial-gradient(#fff_1px,transparent_1px)] [bg-size:16px_16px]"></div>
 
         <div className="max-w-4xl mx-auto z-10 flex flex-col items-center">
           <h1 className="text-4xl md:text-6xl lg:text-7xl font-extrabold tracking-tight mb-6 leading-none">

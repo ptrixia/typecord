@@ -37,12 +37,12 @@ export async function getMessages(channelId: string) {
     return {
         id: msg.id,
         author: msg.member.nickname || msg.member.user.globalName || msg.member.user.username,
-        authorColor: isWebhookMessage ? "text-rose-500" : "text-stone-700 dark:text-zinc-200", 
-        avatarColor: isWebhookMessage ? "bg-rose-600" : "bg-indigo-500", 
+        authorColor: isWebhookMessage ? "text-rose-500" : "text-stone-700 dark:text-zinc-200",
+        avatarColor: isWebhookMessage ? "bg-rose-600" : "bg-indigo-500",
         avatarUrl: msg.member.user.avatarUrl,
-        time: msg.createdAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+        createdAt: msg.createdAt.toISOString(),
         content: msg.content,
-        isWebhook: isWebhookMessage 
+        isWebhook: isWebhookMessage,
     };
 });
     } catch (error) {
@@ -168,15 +168,7 @@ export async function sendMessageAction(
                 newMessage.member.user
                     .avatarUrl,
 
-            time:
-                newMessage.createdAt
-                    .toLocaleTimeString(
-                        "pt-BR",
-                        {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                        }
-                    ),
+            createdAt: newMessage.createdAt.toISOString(),
 
             content:
                 newMessage.content,

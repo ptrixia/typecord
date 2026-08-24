@@ -13,6 +13,8 @@ import MessageReply, {
 } from "./MessageReply";
 import { MessageAttachmentData } from "./MessageAttachment";
 import { MessageEmbedData } from "./MessageEmbed";
+import Avatar from "../Image/Avatar";
+import ClientTime from "../ClientTime";
 
 export interface MessageData {
     id: string;
@@ -24,7 +26,8 @@ export interface MessageData {
     avatarColor?: string;
     avatarUrl?: string | null;
 
-    time: string;
+    createdAt?: string;
+    time?: string;
 
     content: string;
 
@@ -141,11 +144,9 @@ export default function MessageItem({
 
             {/* Avatar */}
             {message.avatarUrl ? (
-                <img
-                    src={message.avatarUrl}
-                    alt=""
-                    className="mt-1 h-10 w-10 shrink-0 rounded-full object-cover"
-                />
+
+                <Avatar  avatarUrl={message.avatarUrl} />
+                
             ) : (
                 <div
                     className={`mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${
@@ -196,7 +197,8 @@ export default function MessageItem({
                         )}
 
                     <span className="text-xs text-zinc-500">
-                        {message.time}
+                        {/* Format on client to avoid locale differences during hydration */}
+                        <ClientTime timestamp={message.createdAt || message.time} />
                     </span>
                 </div>
 

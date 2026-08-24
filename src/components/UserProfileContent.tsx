@@ -18,8 +18,10 @@ import { useEffect, useRef, useState } from "react";
 import Modal from "@/components/Modal";
 import { updateUserProfile } from "@/actions/user";
 import { useRouter } from "next/navigation";
+import Avatar from "./Image/Avatar";
+import Banner from "./Image/Banner";
 
-type UserStatus = "online" | "ausente" | "ocupado" | "invisivel";
+type UserStatus = "ONLINE" | "IDLE" | "DND" | "INVISIBLE" | "OFFLINE";
 
 type ProfileUser = {
   id: string;
@@ -29,6 +31,8 @@ type ProfileUser = {
   avatarUrl?: string | null;
   bannerUrl?: string | null;
   bio?: string | null;
+  status?: UserStatus | null;
+  customStatus?: string | null;
 };
 
 interface UserProfileContentProps {
@@ -41,10 +45,10 @@ const statusOptions: {
   description: string;
   color: string;
 }[] = [
-  { id: "online", label: "Online", description: "Disponível", color: "bg-emerald-500" },
-  { id: "ausente", label: "Ausente", description: "Ausente", color: "bg-yellow-500" },
-  { id: "ocupado", label: "Ocupado", description: "Não perturbe", color: "bg-red-500" },
-  { id: "invisivel", label: "Invisível", description: "Invisível", color: "bg-zinc-500" },
+  { id: "ONLINE", label: "Online", description: "Disponível", color: "bg-emerald-500" },
+  { id: "IDLE", label: "Ausente", description: "Ausente", color: "bg-yellow-500" },
+  { id: "DND", label: "Ocupado", description: "Não perturbe", color: "bg-red-500" },
+  { id: "INVISIBLE", label: "Invisível", description: "Invisível", color: "bg-zinc-500" },
 ];
 
 function MenuItem({
@@ -94,23 +98,21 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
   const [isMuted, setIsMuted] = useState(false);
   const [isDeafened, setIsDeafened] = useState(false);
 
-  const [status, setStatus] = useState<UserStatus>("online");
-  const [customStatus, setCustomStatus] = useState("Desenvolvendo aplicações");
+  const [status, setStatus] = useState<UserStatus>(() => (user?.status as UserStatus) || "ONLINE");
+  const [customStatus, setCustomStatus] = useState<string>(() => user?.customStatus || "");
   const [editingStatus, setEditingStatus] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => { setIsMounted(true); }, []);
 
   const menuRef = useRef<HTMLDivElement>(null);
   const editAvatarRef = useRef<HTMLInputElement>(null);
   const editBannerRef = useRef<HTMLInputElement>(null);
 
-  const [editGlobalName, setEditGlobalName] = useState(user?.globalName || "");
-  const [editAvatarUrl, setEditAvatarUrl] = useState(user?.avatarUrl || "");
-  const [editBannerUrl, setEditBannerUrl] = useState(user?.bannerUrl || "");
-  const [editBio, setEditBio] = useState(user?.bio || "");
-  
-  const [resolvedAvatarUrl, setResolvedAvatarUrl] = useState<string>("");
-  const [resolvedBannerUrl, setResolvedBannerUrl] = useState<string>("");
-  const [resolvedEditAvatarUrl, setResolvedEditAvatarUrl] = useState<string>("");
-  const [resolvedEditBannerUrl, setResolvedEditBannerUrl] = useState<string>("");
+  const [editGlobalName, setEditGlobalName] = useState("");
+  const [editAvatarUrl, setEditAvatarUrl] = useState("");
+  const [editBannerUrl, setEditBannerUrl] = useState("");
+  const [editBio, setEditBio] = useState("");
   
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [isUploadingBanner, setIsUploadingBanner] = useState(false);
@@ -128,103 +130,9 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
     setEditAvatarUrl(user.avatarUrl || "");
     setEditBannerUrl(user.bannerUrl || "");
     setEditBio(user.bio || "");
+    setStatus(user.status || "ONLINE");
+    setCustomStatus(user.customStatus || "");
   }, [user]);
-
-  // Resolver Avatar principal
-  useEffect(() => {
-    let isMounted = true;
-    async function resolveAvatar() {
-      if (!user?.avatarUrl) {
-        setResolvedAvatarUrl("");
-        return;
-      }
-      if (user.avatarUrl.startsWith("http") || user.avatarUrl.startsWith("blob") || user.avatarUrl.startsWith("/")) {
-        if (isMounted) setResolvedAvatarUrl(user.avatarUrl);
-        return;
-      }
-      try {
-        const response = await fetch(`/api/files?key=${encodeURIComponent(user.avatarUrl)}`, { cache: "no-store" });
-        const data = await response.json();
-        if (isMounted && data.success && data.url) setResolvedAvatarUrl(data.url);
-      } catch {
-        if (isMounted) setResolvedAvatarUrl(user.avatarUrl);
-      }
-    }
-    resolveAvatar();
-    return () => { isMounted = false; };
-  }, [user?.avatarUrl]);
-
-  // Resolver Banner principal
-  useEffect(() => {
-    let isMounted = true;
-    async function resolveBanner() {
-      if (!user?.bannerUrl) {
-        setResolvedBannerUrl("");
-        return;
-      }
-      if (user.bannerUrl.startsWith("http") || user.bannerUrl.startsWith("blob") || user.bannerUrl.startsWith("/")) {
-        if (isMounted) setResolvedBannerUrl(user.bannerUrl);
-        return;
-      }
-      try {
-        const response = await fetch(`/api/files?key=${encodeURIComponent(user.bannerUrl)}`, { cache: "no-store" });
-        const data = await response.json();
-        if (isMounted && data.success && data.url) setResolvedBannerUrl(data.url);
-      } catch {
-        if (isMounted) setResolvedBannerUrl(user.bannerUrl);
-      }
-    }
-    resolveBanner();
-    return () => { isMounted = false; };
-  }, [user?.bannerUrl]);
-
-  // Resolver Avatar para edição
-  useEffect(() => {
-    let isMounted = true;
-    async function resolveEditAvatar() {
-      if (!editAvatarUrl) {
-        setResolvedEditAvatarUrl("");
-        return;
-      }
-      if (editAvatarUrl.startsWith("http") || editAvatarUrl.startsWith("blob") || editAvatarUrl.startsWith("/")) {
-        if (isMounted) setResolvedEditAvatarUrl(editAvatarUrl);
-        return;
-      }
-      try {
-        const response = await fetch(`/api/files?key=${encodeURIComponent(editAvatarUrl)}`, { cache: "no-store" });
-        const data = await response.json();
-        if (isMounted && data.success && data.url) setResolvedEditAvatarUrl(data.url);
-      } catch {
-        if (isMounted) setResolvedEditAvatarUrl(editAvatarUrl);
-      }
-    }
-    resolveEditAvatar();
-    return () => { isMounted = false; };
-  }, [editAvatarUrl]);
-
-  // Resolver Banner para edição
-  useEffect(() => {
-    let isMounted = true;
-    async function resolveEditBanner() {
-      if (!editBannerUrl) {
-        setResolvedEditBannerUrl("");
-        return;
-      }
-      if (editBannerUrl.startsWith("http") || editBannerUrl.startsWith("blob") || editBannerUrl.startsWith("/")) {
-        if (isMounted) setResolvedEditBannerUrl(editBannerUrl);
-        return;
-      }
-      try {
-        const response = await fetch(`/api/files?key=${encodeURIComponent(editBannerUrl)}`, { cache: "no-store" });
-        const data = await response.json();
-        if (isMounted && data.success && data.url) setResolvedEditBannerUrl(data.url);
-      } catch {
-        if (isMounted) setResolvedEditBannerUrl(editBannerUrl);
-      }
-    }
-    resolveEditBanner();
-    return () => { isMounted = false; };
-  }, [editBannerUrl]);
 
   useEffect(() => {
     function handlePointerDown(event: PointerEvent) {
@@ -305,6 +213,32 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
     }
   }
 
+  async function handleStatusChange(newStatus: UserStatus) {
+    setStatus(newStatus);
+    setSubmenu(null);
+    try {
+      await updateUserProfile({
+        status: newStatus,
+      } as Parameters<typeof updateUserProfile>[0]);
+      router.refresh();
+    } catch (error) {
+      console.error(error);
+    }
+  }
+
+  async function handleCustomStatusChange(newCustomStatus: string) {
+    setCustomStatus(newCustomStatus);
+    setEditingStatus(false);
+    try {
+      await updateUserProfile({
+        customStatus: newCustomStatus,
+      } as Parameters<typeof updateUserProfile>[0]);
+      router.refresh();
+    } catch (error) {
+      console.error(error);
+    }
+  }
+
   async function handleSaveProfile() {
     setIsSaving(true);
     try {
@@ -319,7 +253,7 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
       router.refresh();
       window.location.reload();
     } catch (error) {
-      console.error("Erro ao salvar perfil", error);
+      console.error(error);
       alert("Não foi possível salvar o perfil.");
     } finally {
       setIsSaving(false);
@@ -331,7 +265,6 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
       <input ref={editAvatarRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => handleUploadFile(e, "avatar")} />
       <input ref={editBannerRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => handleUploadFile(e, "banner")} />
 
-      {/* BARRA DO USUÁRIO */}
       <div
         ref={menuRef}
         className="relative flex h-[58px] shrink-0 items-center border-t border-stone-300 bg-stone-300/80 px-2 dark:border-zinc-950 dark:bg-[#1e1f22]"
@@ -343,8 +276,8 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
         >
           <div className="relative shrink-0">
             <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-indigo-500 text-xs font-bold text-white shadow-sm">
-              {resolvedAvatarUrl ? (
-                <img src={resolvedAvatarUrl} alt={displayName} loading="eager" className="h-full w-full object-cover" />
+              {user?.avatarUrl ? (
+                <Avatar avatarUrl={user?.avatarUrl} className="h-full w-full object-cover" />
               ) : (
                 getInitials(displayName)
               )}
@@ -357,7 +290,7 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
               {displayName}
             </div>
             <div className="truncate text-[11px] leading-tight text-stone-500 dark:text-zinc-400">
-              {customStatus || "Disponível"}
+            {isMounted ? (customStatus || "Disponível") : (user?.customStatus || "Disponível")}
             </div>
           </div>
         </button>
@@ -391,15 +324,14 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
           </button>
         </div>
 
-        {/* MENU FLUTUANTE */}
         {menuOpen && (
           <div className="absolute bottom-[66px] left-1 z-[100] w-[calc(100%-8px)] rounded-lg border border-stone-300 bg-white p-1.5 shadow-2xl dark:border-zinc-800 dark:bg-[#111214]">
             <div className="mb-1 rounded-md bg-stone-100 p-3 dark:bg-[#18191c]">
               <div className="flex items-center gap-3">
                 <div className="relative shrink-0">
                   <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-indigo-500 text-sm font-bold text-white shadow">
-                    {resolvedAvatarUrl ? (
-                      <img src={resolvedAvatarUrl} alt={displayName} loading="eager" className="h-full w-full object-cover" />
+                    {user?.avatarUrl ? (
+                      <Avatar avatarUrl={user?.avatarUrl} className="h-full w-full object-cover" />
                     ) : (
                       getInitials(displayName)
                     )}
@@ -424,8 +356,15 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
                   maxLength={128}
                   autoFocus
                   onChange={(e) => setCustomStatus(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") setEditingStatus(false); }}
-                  onBlur={() => setEditingStatus(false)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      handleCustomStatusChange(customStatus);
+                    } else if (e.key === "Escape") {
+                      setCustomStatus(user?.customStatus || "");
+                      setEditingStatus(false);
+                    }
+                  }}
+                  onBlur={() => handleCustomStatusChange(customStatus)}
                   placeholder="O que você está fazendo?"
                   className="mt-3 w-full rounded-md border border-stone-300 bg-white px-2.5 py-1.5 text-xs text-stone-900 outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-[#232428] dark:text-white"
                 />
@@ -466,7 +405,7 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
                       <button
                         key={opt.id}
                         type="button"
-                        onClick={() => { setStatus(opt.id); setSubmenu(null); }}
+                        onClick={() => handleStatusChange(opt.id)}
                         className="flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-stone-200 dark:hover:bg-zinc-800"
                       >
                         <span className={["h-3 w-3 shrink-0 rounded-full", opt.color].join(" ")} />
@@ -492,25 +431,22 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
         )}
       </div>
 
-      {/* MODAL DE PERFIL COMPLETO (VISUALIZAÇÃO) */}
       <Modal isOpen={profileModalOpen} onClose={() => setProfileModalOpen(false)} title="Perfil">
         <div className="overflow-hidden rounded-xl bg-white shadow-2xl dark:bg-[#111214] border border-stone-200 dark:border-zinc-800">
-          {/* Banner */}
           <div className="relative h-36 w-full bg-indigo-600 overflow-hidden">
-            {resolvedBannerUrl ? (
-              <img src={resolvedBannerUrl} alt="Banner" loading="eager" className="absolute inset-0 h-full w-full object-cover" />
+            {user?.bannerUrl ? (
+              <Banner bannerUrl={user?.bannerUrl} />
             ) : (
               <div className="h-full w-full bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500" />
             )}
           </div>
 
           <div className="relative px-6 pb-6 pt-4">
-            {/* Avatar */}
             <div className="-mt-14 mb-4 flex items-end justify-between">
-              <div className="relative inline-block">
-                <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border-[6px] border-white bg-indigo-500 text-2xl font-bold text-white dark:border-[#111214] shadow-lg">
-                  {resolvedAvatarUrl ? (
-                    <img src={resolvedAvatarUrl} alt={displayName} loading="eager" className="h-full w-full object-cover" />
+              <div className="relative inline-block h-24 w-24">
+                <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-full border-[6px] border-white bg-indigo-500 text-2xl font-bold text-white dark:border-[#111214] shadow-lg">
+                  {user?.avatarUrl ? (
+                    <Avatar avatarUrl={user.avatarUrl} className="h-full w-full object-cover" />
                   ) : (
                     getInitials(displayName)
                   )}
@@ -564,7 +500,6 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
         </div>
       </Modal>
 
-      {/* MODAL EDITAR PERFIL COMPLETO */}
       <Modal isOpen={editProfileModalOpen} onClose={() => setEditProfileModalOpen(false)} title="Editar perfil">
         <div className="space-y-5">
           <p className="text-sm text-stone-500 dark:text-zinc-400">
@@ -572,14 +507,13 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
           </p>
 
           <div className="space-y-4 rounded-xl border border-stone-200 p-4 dark:border-zinc-800 bg-stone-50 dark:bg-zinc-900/40">
-            {/* Banner Preview & Upload */}
             <div>
               <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wider text-stone-500 dark:text-zinc-400">
                 Banner do Perfil
               </label>
               <div className="relative h-28 w-full overflow-hidden rounded-lg bg-indigo-600 mb-2 border border-stone-200 dark:border-zinc-800">
-                {resolvedEditBannerUrl ? (
-                  <img src={resolvedEditBannerUrl} alt="Banner Preview" loading="eager" className="absolute inset-0 h-full w-full object-cover" />
+                {editBannerUrl ? (
+                  <Banner bannerUrl={editBannerUrl} />
                 ) : (
                   <div className="h-full w-full bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500" />
                 )}
@@ -595,15 +529,14 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
               </div>
             </div>
 
-            {/* Avatar Preview & Upload */}
             <div>
               <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wider text-stone-500 dark:text-zinc-400">
                 Avatar do Usuário
               </label>
               <div className="flex items-center gap-4">
                 <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-indigo-500 text-lg font-bold text-white shadow">
-                  {resolvedEditAvatarUrl ? (
-                    <img src={resolvedEditAvatarUrl} alt="Avatar Preview" loading="eager" className="h-full w-full object-cover" />
+                  {editAvatarUrl ? (
+                    <Avatar avatarUrl={editAvatarUrl} className="h-full w-full object-cover" />
                   ) : (
                     getInitials(displayName)
                   )}
@@ -620,7 +553,6 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
               </div>
             </div>
 
-            {/* Nome de Exibição */}
             <div>
               <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wider text-stone-500 dark:text-zinc-400">
                 Nome de Exibição
@@ -634,7 +566,6 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
               />
             </div>
 
-            {/* Biografia */}
             <div>
               <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wider text-stone-500 dark:text-zinc-400">
                 Sobre Mim

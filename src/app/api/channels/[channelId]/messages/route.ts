@@ -494,29 +494,23 @@ export async function POST(
         };
 
         const formattedMessage = {
-            id: message.id,
-            author:
-                message.member.nickname ||
-                message.member.user.globalName ||
-                message.member.user.username,
-            authorId: message.member.user.id,
-            authorColor: "text-indigo-400",
-            avatarColor: "bg-indigo-600",
-            avatarUrl: message.member.user.avatarUrl,
-            time: message.createdAt.toLocaleTimeString(
-                "pt-BR",
-                {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                },
-            ),
-            content: message.content,
-            reply: null,
-            attachments: message.attachments,
-            embeds: formattedEmbeds,
-            isPending: false,
-            isWebhook: false,
-            isBot: true,
+        id: message.id,
+        author:
+            message.member.nickname ||
+            message.member.user.globalName ||
+            message.member.user.username,
+        authorId: message.member.user.id,
+        authorColor: "text-indigo-400",
+        avatarColor: "bg-indigo-600",
+        avatarUrl: message.member.user.avatarUrl,
+        createdAt: message.createdAt.toISOString(),
+        content: message.content,
+        reply: null,
+        attachments: message.attachments,
+        embeds: formattedEmbeds,
+        isPending: false,
+        isWebhook: false,
+        isBot: true,
         };
 
         await pusherServer.trigger(

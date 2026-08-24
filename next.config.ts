@@ -1,7 +1,6 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
   reactCompiler: true,
   allowedDevOrigins: ['conditioning-adaptation-assignment-kiss.trycloudflare.com', 'app.tysaiw.com'],
   experimental: {

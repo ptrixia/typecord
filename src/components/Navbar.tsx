@@ -1,26 +1,83 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { X, Square, Minus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 export default function Navbar() {
+  const [isDesktop, setIsDesktop] = useState(false);
+
+  useEffect(() => {
+    if (
+      typeof window !== "undefined" &&
+      ("__TAURI_INTERNALS__" in window || "__TAURI__" in window)
+    ) {
+      setIsDesktop(true);
+    }
+  }, []);
+
+  const handleMinimize = async () => {
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().minimize();
+    } catch {}
+  };
+
+  const handleMaximize = async () => {
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().toggleMaximize();
+    } catch {}
+  };
+
+  const handleClose = async () => {
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().close();
+    } catch {}
+  };
+
   return (
-    <nav className="w-full flex items-center justify-end bg-zinc-50 dark:bg-black">
-      <div className="flex items-center gap-0.5">
+    <nav
+      data-tauri-drag-region
+      className="flex h-12 w-full select-none items-center justify-between bg-zinc-50 dark:bg-black"
+    >
+      <div data-tauri-drag-region className="h-full flex-1" />
+
+      <div className="flex h-full items-center gap-1 px-2">
         <ThemeToggle />
 
-        <Button variant="ghost" size="icon">
-          <Minus />
-        </Button>
+        {isDesktop && (
+          <div className="flex items-center">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleMinimize}
+              className="h-9 w-12 rounded-md hover:bg-zinc-200 dark:hover:bg-zinc-800"
+            >
+              <Minus className="h-4 w-4" />
+            </Button>
 
-        <Button variant="ghost" size="icon">
-          <Square />
-        </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleMaximize}
+              className="h-9 w-12 rounded-md hover:bg-zinc-200 dark:hover:bg-zinc-800"
+            >
+              <Square className="h-4 w-4" />
+            </Button>
 
-        <Button variant="ghost" size="icon">
-          <X />
-        </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleClose}
+              className="h-9 w-12 rounded-md hover:bg-red-500 hover:text-white dark:hover:bg-red-500 dark:hover:text-white"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
       </div>
     </nav>
   );

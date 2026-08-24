@@ -12,6 +12,7 @@ import {
 import "@livekit/components-styles";
 import { Track } from "livekit-client";
 import { Users, PhoneOff, MessageSquare, Send } from "lucide-react";
+import ClientTime from "./ClientTime";
 
 interface VoiceRoomProps {
   roomName: string;
@@ -214,10 +215,11 @@ function ConnectedParticipantsList() {
 
   return (
     <div className="flex flex-col gap-1 overflow-y-auto">
-      {participants?.map((p) => {
+      {participants?.map((p, idx) => {
         const name = p?.identity || "Usuário";
+        const key = p?.sid ?? `participant-${idx}`;
         return (
-          <div key={p?.sid || Math.random()} className="flex items-center gap-2.5 p-1.5 rounded-md hover:bg-zinc-700/35 transition-colors">
+          <div key={key} className="flex items-center gap-2.5 p-1.5 rounded-md hover:bg-zinc-700/35 transition-colors">
             <div className="relative">
               <div className="h-8 w-8 rounded-full bg-indigo-500 flex items-center justify-center font-bold text-xs uppercase text-white overflow-hidden shadow">
                 {name.charAt(0)}
@@ -264,7 +266,7 @@ function VoiceChatPanel() {
               <div className="flex items-center gap-2">
                 <span className="font-bold text-indigo-400">{msg.from?.identity || "Usuário"}</span>
                 <span className="text-[10px] text-zinc-500">
-                  {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  <ClientTime timestamp={msg.timestamp} />
                 </span>
               </div>
               <p className="text-zinc-300 mt-0.5 break-words">{msg.message}</p>

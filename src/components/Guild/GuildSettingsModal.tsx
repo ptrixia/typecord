@@ -58,6 +58,8 @@ import {
     type PermissionName,
 } from "@/lib/permissions";
 import InvitesSettings from "./InviteSettings";
+import Avatar from "../Image/Avatar";
+import Banner from "../Image/Banner";
 
 type Tab =
     | "overview"
@@ -242,11 +244,7 @@ export default function GuildSettingsModal({
     const [banner, setBanner] =
         useState("");
 
-    const [iconUrl, setIconUrl] =
-        useState("");
 
-    const [bannerUrl, setBannerUrl] =
-        useState("");
 
     const [createOpen, setCreateOpen] =
         useState(false);
@@ -296,91 +294,6 @@ export default function GuildSettingsModal({
         setBanner(guild.bannerUrl ?? "");
     }, [guild]);
 
-    useEffect(() => {
-        let isMounted = true;
-
-        async function resolveIcon() {
-            if (!icon) {
-                setIconUrl("");
-                return;
-            }
-
-            if (
-                icon.startsWith("http://") ||
-                icon.startsWith("https://") ||
-                icon.startsWith("blob:")
-            ) {
-                if (isMounted) setIconUrl(icon);
-                return;
-            }
-
-            try {
-                const response = await fetch(
-                    `/api/files?key=${encodeURIComponent(icon)}`,
-                    { cache: "no-store" }
-                );
-
-                const data = await response.json();
-
-                if (isMounted && data.success && data.url) {
-                    setIconUrl(data.url);
-                } else if (isMounted) {
-                    setIconUrl(icon);
-                }
-            } catch (error) {
-                if (isMounted) setIconUrl(icon);
-            }
-        }
-
-        resolveIcon();
-
-        return () => {
-            isMounted = false;
-        };
-    }, [icon]);
-
-    useEffect(() => {
-        let isMounted = true;
-
-        async function resolveBanner() {
-            if (!banner) {
-                setBannerUrl("");
-                return;
-            }
-
-            if (
-                banner.startsWith("http://") ||
-                banner.startsWith("https://") ||
-                banner.startsWith("blob:")
-            ) {
-                if (isMounted) setBannerUrl(banner);
-                return;
-            }
-
-            try {
-                const response = await fetch(
-                    `/api/files?key=${encodeURIComponent(banner)}`,
-                    { cache: "no-store" }
-                );
-
-                const data = await response.json();
-
-                if (isMounted && data.success && data.url) {
-                    setBannerUrl(data.url);
-                } else if (isMounted) {
-                    setBannerUrl(banner);
-                }
-            } catch (error) {
-                if (isMounted) setBannerUrl(banner);
-            }
-        }
-
-        resolveBanner();
-
-        return () => {
-            isMounted = false;
-        };
-    }, [banner]);
 
     useEffect(() => {
         return () => {
@@ -638,7 +551,6 @@ export default function GuildSettingsModal({
 
                 iconObjectUrlRef.current = objectUrl;
                 setIcon(data.key);
-                setIconUrl(objectUrl);
             } else {
                 if (bannerObjectUrlRef.current) {
                     URL.revokeObjectURL(bannerObjectUrlRef.current);
@@ -646,7 +558,6 @@ export default function GuildSettingsModal({
 
                 bannerObjectUrlRef.current = objectUrl;
                 setBanner(data.key);
-                setBannerUrl(objectUrl);
             }
 
             showNotice(
@@ -1059,102 +970,91 @@ export default function GuildSettingsModal({
                             />
 
                             <div className="overflow-hidden rounded-xl border border-black/5 bg-white shadow-sm dark:border-white/5 dark:bg-[#1e1f22]">
-                                <div className="relative h-48 overflow-hidden bg-gradient-to-br from-[#5865f2]/30 via-[#7289da]/10 to-transparent">
-                                    {bannerUrl && (
-                                        <img
-                                            src={bannerUrl}
-                                            className="absolute inset-0 h-full w-full object-cover"
-                                            alt=""
-                                        />
-                                    )}
 
-                                    <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
+    <div className="relative h-48 overflow-hidden bg-gradient-to-br from-[#5865f2]/30 via-[#7289da]/10 to-transparent">
+        {banner && (
+            <Banner 
+                bannerUrl={banner} 
+                className="absolute inset-0 h-full w-full object-cover" 
+            />
+        )}
 
-                                    <button
-                                        onClick={() =>
-                                            bannerRef.current?.click()
-                                        }
-                                        className="absolute bottom-4 right-4 flex items-center gap-2 rounded-lg bg-black/60 px-3 py-2 text-xs font-semibold text-white backdrop-blur transition hover:bg-black/80"
-                                    >
-                                        <ImagePlus size={15} />
-                                        Alterar banner
-                                    </button>
+        <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent pointer-events-none" />
 
-                                    <div className="absolute bottom-[-32px] left-6">
-                                        <button
-                                            onClick={() =>
-                                                iconRef.current?.click()
-                                            }
-                                            className="group relative h-24 w-24 overflow-hidden rounded-full border-[5px] border-white bg-[#5865f2] shadow-xl dark:border-[#1e1f22]"
-                                        >
-                                            {iconUrl ? (
-                                                <img
-                                                    src={iconUrl}
-                                                    className="h-full w-full object-cover"
-                                                    alt=""
-                                                />
-                                            ) : (
-                                                <ImagePlus
-                                                    className="mx-auto text-white"
-                                                    size={28}
-                                                />
-                                            )}
+        <button
+            type="button"
+            onClick={() => bannerRef.current?.click()}
+            className="absolute bottom-4 right-4 z-10 flex items-center gap-2 rounded-lg bg-black/60 px-3 py-2 text-xs font-semibold text-white backdrop-blur transition hover:bg-black/80"
+        >
+            <ImagePlus size={15} />
+            Alterar banner
+        </button>
 
-                                            <span className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 transition group-hover:opacity-100">
-                                                <ImagePlus
-                                                    size={20}
-                                                    className="text-white"
-                                                />
-                                            </span>
-                                        </button>
-                                    </div>
-                                </div>
+        <div className="absolute bottom-4 left-4 z-10">
+            <button
+                type="button"
+                onClick={() => iconRef.current?.click()}
+                className="group relative h-24 w-24 overflow-hidden rounded-full border-[3px] border-white bg-[#5865f2] shadow-xl dark:border-[#1e1f22]"
+            >
+                {icon ? (
+                    <Avatar avatarUrl={icon} className="h-full w-full" />
+                ) : (
+                    <div className="flex h-full w-full items-center justify-center">
+                        <ImagePlus className="text-white" size={28} />
+                    </div>
+                )}
 
-                                <div className="px-6 pb-6 pt-12">
-                                    <div className="grid gap-6 md:grid-cols-2">
-                                        <Field
-                                            label="Nome do servidor"
-                                            description="Escolha um nome fácil de reconhecer."
-                                        >
-                                            <input
-                                                value={name}
-                                                maxLength={100}
-                                                onChange={(event) =>
-                                                    setName(
-                                                        event.target.value,
-                                                    )
-                                                }
-                                                className="h-11 w-full rounded-lg border border-black/10 bg-zinc-50 px-3 text-sm outline-none transition focus:border-[#5865f2] focus:ring-2 focus:ring-[#5865f2]/20 dark:border-white/10 dark:bg-[#111214]"
-                                            />
+                <span className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 transition group-hover:opacity-100">
+                    <ImagePlus size={20} className="text-white" />
+                </span>
+            </button>
+        </div>
+    </div>
 
-                                            <div className="mt-1 text-right text-[11px] text-zinc-500">
-                                                {name.length}/100
-                                            </div>
-                                        </Field>
+    <div className="px-6 pb-6 pt-12">
+        <div className="grid gap-6 md:grid-cols-2">
+            <Field
+                label="Nome do servidor"
+                description="Escolha um nome fácil de reconhecer."
+            >
+                <input
+                    value={name}
+                    maxLength={100}
+                    onChange={(event) =>
+                        setName(event.target.value)
+                    }
+                    className="h-11 w-full rounded-lg border border-black/10 bg-zinc-50 px-3 text-sm outline-none transition focus:border-[#5865f2] focus:ring-2 focus:ring-[#5865f2]/20 dark:border-white/10 dark:bg-[#111214]"
+                />
 
-                                        <Field
-                                            label="Ícone"
-                                            description="PNG, JPG ou WebP de até 25 MB."
-                                        >
-                                            <button
-                                                onClick={() =>
-                                                    iconRef.current?.click()
-                                                }
-                                                className="flex h-11 w-full items-center gap-3 rounded-lg border border-dashed border-black/10 bg-zinc-50 px-3 text-sm transition hover:border-[#5865f2] dark:border-white/10 dark:bg-[#111214]"
-                                            >
-                                                <ImagePlus
-                                                    size={17}
-                                                    className="text-zinc-500"
-                                                />
+                <div className="mt-1 text-right text-[11px] text-zinc-500">
+                    {name.length}/100
+                </div>
+            </Field>
 
-                                                <span className="text-zinc-500">
-                                                    Alterar ícone
-                                                </span>
-                                            </button>
-                                        </Field>
-                                    </div>
-                                </div>
-                            </div>
+            <Field
+                label="Ícone"
+                description="PNG, JPG ou WebP de até 25 MB."
+            >
+                <button
+                    type="button"
+                    onClick={() =>
+                        iconRef.current?.click()
+                    }
+                    className="flex h-11 w-full items-center gap-3 rounded-lg border border-dashed border-black/10 bg-zinc-50 px-3 text-sm transition hover:border-[#5865f2] dark:border-white/10 dark:bg-[#111214]"
+                >
+                    <ImagePlus
+                        size={17}
+                        className="text-zinc-500"
+                    />
+
+                    <span className="text-zinc-500">
+                        Alterar ícone
+                    </span>
+                </button>
+            </Field>
+        </div>
+    </div>
+</div>
 
                             <div className="flex justify-end">
                                 <button
@@ -1733,14 +1633,9 @@ export default function GuildSettingsModal({
                                                         }
                                                         className="flex w-full items-center gap-3 px-5 py-3 text-left transition hover:bg-black/[0.03] dark:hover:bg-white/[0.03]"
                                                     >
-                                                        <img
-                                                            src={
-                                                                member.user
-                                                                    ?.avatarUrl ||
-                                                                "https://placehold.co/100"
-                                                            }
-                                                            className="h-10 w-10 rounded-full object-cover"
-                                                            alt=""
+                                                        <Avatar
+                                                            avatarUrl={member.user
+                                                                    ?.avatarUrl}
                                                         />
 
                                                         <div className="min-w-0 flex-1">
@@ -1827,16 +1722,9 @@ export default function GuildSettingsModal({
 
                                         <div className="border-b border-black/5 px-6 py-6 dark:border-white/5">
                                             <div className="flex items-center gap-4">
-                                                <img
-                                                    src={
-                                                        memberSelected
+                                                <Avatar avatarUrl={memberSelected
                                                             .user
-                                                            ?.avatarUrl ||
-                                                        "https://placehold.co/100"
-                                                    }
-                                                    className="h-16 w-16 rounded-full object-cover"
-                                                    alt=""
-                                                />
+                                                            ?.avatarUrl} />
 
                                                 <div>
                                                     <h3 className="text-lg font-semibold">
