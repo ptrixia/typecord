@@ -281,7 +281,7 @@ export default function VideoPlayer({
     <div
       ref={containerRef}
       className="
-        group relative mt-2 w-full max-w-[720px]
+        group relative  w-full max-w-[720px]
         overflow-hidden rounded-2xl
         border border-white/[0.08]
         bg-black

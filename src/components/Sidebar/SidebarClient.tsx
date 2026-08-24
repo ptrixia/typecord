@@ -1,12 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Plus } from "lucide-react";
+import { Plus, Compass } from "lucide-react";
 
 import GuildIcon from "../Guild/GuildIcon";
 import DirectMessagesIcon from "../DirectMessages/DirectMessagesIcon";
 import GuildModal from "./GuildModal";
+import DiscoverModal from "./DiscoverModal";
 import { PartialGuild } from "@/actions/guilds";
+import { testGuildMemberAdd } from "@/actions/test-welcome";
 
 interface SidebarClientProps {
   initialGuilds: PartialGuild[];
@@ -14,6 +16,7 @@ interface SidebarClientProps {
 
 export default function SidebarClient({ initialGuilds }: SidebarClientProps) {
   const [isGuildModalOpen, setIsGuildModalOpen] = useState(false);
+  const [isDiscoverModalOpen, setIsDiscoverModalOpen] = useState(false);
 
   return (
     <>
@@ -57,12 +60,33 @@ export default function SidebarClient({ initialGuilds }: SidebarClientProps) {
           >
             <Plus className="h-6 w-6 transition-transform duration-200 group-hover:rotate-90" />
           </button>
+
+          <button
+            type="button"
+            onClick={() => setIsDiscoverModalOpen(true)}
+            title="Descobrir servidores"
+            className="
+              group flex h-12 w-12 shrink-0 items-center justify-center
+              rounded-full bg-zinc-100 text-zinc-500 transition-all duration-200
+              hover:scale-105 hover:bg-indigo-500 hover:text-white
+              dark:bg-zinc-900 dark:text-zinc-400
+              dark:hover:bg-indigo-500 dark:hover:text-white
+            "
+          >
+            <Compass className="h-6 w-6 transition-transform duration-200" />
+          </button>
+
         </div>
       </div>
 
       <GuildModal
         isOpen={isGuildModalOpen}
         onClose={() => setIsGuildModalOpen(false)}
+      />
+
+      <DiscoverModal
+        isOpen={isDiscoverModalOpen}
+        onClose={() => setIsDiscoverModalOpen(false)}
       />
     </>
   );

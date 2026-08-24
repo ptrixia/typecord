@@ -1,8 +1,9 @@
 import "dotenv/config";
 import Pusher from "pusher-js";
 
-const TYPECORD_URL = "http://localhost:3000";
+const TYPECORD_URL = "https://app.tysaiw.com";
 const BOT_TOKEN = "tc_bot_pbxJ6Ab3lbwEPt18LknTHgKU8XGnCdVGjscHy3PUhXjhqf4dL0cfKkpQPn6gpKX0";
+const WELCOME_CHANNEL_ID = "12f20524-4bb8-43c3-9919-a88c721b4a15";
 
 interface EmbedAuthor {
     name: string;
@@ -79,6 +80,20 @@ interface ReadyData {
     }[];
 }
 
+interface GuildMemberAddData {
+    guildId: string;
+    member: {
+        id: string;
+        user: {
+            id: string;
+            username: string;
+            globalName: string | null;
+            avatarUrl: string | null;
+        };
+        nickname: string | null;
+    };
+}
+
 interface MessageCreateData {
     id: string;
     content: string;
@@ -137,10 +152,23 @@ function normalizeMessage(message: MessageCreateData): MessageCreateData {
             return message;
         }
 
-        const nestedContent = typeof parsed.content === "string" ? parsed.content : message.content;
-        const nestedEmbeds = Array.isArray(parsed.embeds) ? parsed.embeds as BotEmbed[] : message.embeds ?? [];
-        const nestedAttachments = Array.isArray(parsed.attachments) ? parsed.attachments as MessageCreateData["attachments"] : message.attachments ?? [];
-        const nestedReply = typeof parsed.replyToId === "string" ? parsed.replyToId : message.replyToId;
+        const nestedContent =
+            typeof parsed.content === "string"
+                ? parsed.content
+                : message.content;
+
+        const nestedEmbeds = Array.isArray(parsed.embeds)
+            ? (parsed.embeds as BotEmbed[])
+            : message.embeds ?? [];
+
+        const nestedAttachments = Array.isArray(parsed.attachments)
+            ? (parsed.attachments as MessageCreateData["attachments"])
+            : message.attachments ?? [];
+
+        const nestedReply =
+            typeof parsed.replyToId === "string"
+                ? parsed.replyToId
+                : message.replyToId;
 
         return {
             ...message,
@@ -156,8 +184,11 @@ function normalizeMessage(message: MessageCreateData): MessageCreateData {
 }
 
 async function createGatewaySession(): Promise<GatewayResponse> {
-    console.log("");
-    console.log("🔐 Autenticando bot...");
+    if (!BOT_TOKEN) {
+        throw new Error(
+            "TYPECORD_BOT_TOKEN não foi configurado no ambiente."
+        );
+    }
 
     const response = await fetch(`${TYPECORD_URL}/api/gateway`, {
         method: "GET",
@@ -168,10 +199,11 @@ async function createGatewaySession(): Promise<GatewayResponse> {
     });
 
     const body = await response.text();
-    console.log(`📡 Gateway respondeu: ${response.status}`);
 
     if (!response.ok) {
-        throw new Error(`Gateway recusou o bot (${response.status}): ${body}`);
+        throw new Error(
+            `Gateway recusou o bot (${response.status}): ${body}`
+        );
     }
 
     let data: GatewayResponse;
@@ -179,29 +211,60 @@ async function createGatewaySession(): Promise<GatewayResponse> {
     try {
         data = JSON.parse(body) as GatewayResponse;
     } catch {
-        throw new Error(`Resposta inválida do Gateway: ${body.slice(0, 1000)}`);
+        throw new Error(
+            `Resposta inválida do Gateway: ${body.slice(0, 1000)}`
+        );
     }
 
-    if (!data.session || !data.session.token) {
-        throw new Error("Gateway não retornou uma sessão válida.");
+    if (!data.session?.token) {
+        throw new Error(
+            "Gateway não retornou uma sessão válida."
+        );
     }
 
-    if (!data.bot || !data.bot.user) {
-        throw new Error("Gateway não retornou os dados do bot.");
+    if (!data.bot?.user) {
+        throw new Error(
+            "Gateway não retornou os dados do bot."
+        );
     }
 
     currentSession = data.session;
     currentBotUserId = data.bot.user.id;
 
-    console.log(`🤖 Bot autenticado como @${data.bot.user.username}`);
-    console.log(`🆔 User ID: ${data.bot.user.id}`);
-    console.log(`🏠 Guilds: ${data.guilds?.length ?? 0}`);
+    console.log(
+        `🤖 Bot autenticado como @${data.bot.user.username}`
+    );
+
+    console.log(
+        `🆔 User ID: ${data.bot.user.id}`
+    );
+
+    console.log(
+        `🏠 Guilds: ${data.guilds?.length ?? 0}`
+    );
 
     return data;
 }
 
-async function sendMessage(channelId: string, content = "", replyToId?: string, embed?: BotEmbed) {
-    const payload: { content: string; replyToId?: string; embeds?: BotEmbed[] } = { content };
+async function sendMessage(
+    channelId: string,
+    content = "",
+    replyToId?: string,
+    embed?: BotEmbed
+) {
+    if (!channelId) {
+        throw new Error(
+            "channelId não informado."
+        );
+    }
+
+    const payload: {
+        content: string;
+        replyToId?: string;
+        embeds?: BotEmbed[];
+    } = {
+        content,
+    };
 
     if (replyToId) {
         payload.replyToId = replyToId;
@@ -211,164 +274,374 @@ async function sendMessage(channelId: string, content = "", replyToId?: string, 
         payload.embeds = [embed];
     }
 
-    const response = await fetch(`${TYPECORD_URL}/api/channels/${channelId}/messages`, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bot ${BOT_TOKEN}`,
-            Accept: "application/json",
-        },
-        body: JSON.stringify(payload),
-    });
+    const response = await fetch(
+        `${TYPECORD_URL}/api/channels/${channelId}/messages`,
+        {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bot ${BOT_TOKEN}`,
+                Accept: "application/json",
+            },
+            body: JSON.stringify(payload),
+        }
+    );
 
     const body = await response.text();
-    console.log(`📡 API respondeu: HTTP ${response.status}`);
 
     if (!response.ok) {
-        console.error("❌ Resposta:", body);
-        throw new Error(`Falha ao enviar mensagem (${response.status}): ${body}`);
+        throw new Error(
+            `Falha ao enviar mensagem (${response.status}): ${body}`
+        );
     }
 
-    let result: unknown = null;
-
-    if (body) {
-        try {
-            result = JSON.parse(body);
-        } catch {
-            result = body;
-        }
+    if (!body) {
+        return null;
     }
 
-    console.log("✅ Mensagem enviada com sucesso!");
-    return result;
+    try {
+        return JSON.parse(body);
+    } catch {
+        return body;
+    }
 }
 
-function logMessage(originalMessage: MessageCreateData) {
-    const message = normalizeMessage(originalMessage);
-    const date = new Date(message.createdAt);
+function logMessage(message: MessageCreateData) {
+    const normalized = normalizeMessage(message);
+    const date = new Date(normalized.createdAt);
 
     console.log("");
     console.log("╔══════════════════════════════════════╗");
     console.log("║ 💬 NOVA MENSAGEM");
     console.log("╠══════════════════════════════════════╣");
-    console.log(`║ 👤 Usuário: ${message.author.globalName ?? message.author.username}`);
-    console.log(`║ 🏷️ Username: @${message.author.username}`);
-    console.log(`║ 🆔 User ID: ${message.author.id}`);
-    console.log(`║ 🤖 Bot: ${message.isBot ? "sim" : "não"}`);
-    console.log(`║ 🏠 Guild ID: ${message.guildId}`);
-    console.log(`║ 💬 Channel ID: ${message.channelId}`);
-    console.log(`║ 🕐 Data: ${date.toLocaleString("pt-BR")}`);
-    console.log(`║ 📝 Mensagem: ${message.content}`);
-    console.log(`║ 🖼️ Embeds: ${message.embeds?.length ?? 0}`);
-    console.log(`║ 📎 Anexos: ${message.attachments?.length ?? 0}`);
+    console.log(
+        `║ 👤 Usuário: ${
+            normalized.author.globalName ??
+            normalized.author.username
+        }`
+    );
+    console.log(
+        `║ 🏷️ Username: @${normalized.author.username}`
+    );
+    console.log(
+        `║ 🆔 User ID: ${normalized.author.id}`
+    );
+    console.log(
+        `║ 🤖 Bot: ${normalized.isBot ? "sim" : "não"}`
+    );
+    console.log(
+        `║ 🏠 Guild ID: ${normalized.guildId}`
+    );
+    console.log(
+        `║ 💬 Channel ID: ${normalized.channelId}`
+    );
+    console.log(
+        `║ 🕐 Data: ${date.toLocaleString("pt-BR")}`
+    );
+    console.log(
+        `║ 📝 Mensagem: ${normalized.content}`
+    );
+    console.log(
+        `║ 🖼️ Embeds: ${normalized.embeds?.length ?? 0}`
+    );
+    console.log(
+        `║ 📎 Anexos: ${
+            normalized.attachments?.length ?? 0
+        }`
+    );
     console.log("╚══════════════════════════════════════╝");
     console.log("");
 }
 
-async function handleMessage(originalMessage: MessageCreateData) {
-    const message = normalizeMessage(originalMessage);
+async function handleMessage(
+    originalMessage: MessageCreateData
+) {
+    const message = normalizeMessage(
+        originalMessage
+    );
 
-    if (message.author.id === currentBotUserId) {
-        console.log("↩️ Ignorando mensagem enviada pelo próprio bot.");
+    if (
+        message.author.id ===
+        currentBotUserId
+    ) {
         return;
     }
 
     logMessage(message);
 
-    const rawContent = message.content.trim();
-    if (!rawContent.startsWith("!")) return;
+    const rawContent =
+        message.content.trim();
 
-    const args = rawContent.split(/\s+/);
-    const command = args.shift()?.toLowerCase();
+    if (!rawContent.startsWith("!")) {
+        return;
+    }
+
+    const args =
+        rawContent.split(/\s+/);
+
+    const command =
+        args.shift()?.toLowerCase();
 
     if (command === "!ping") {
-        const ping = Math.abs(Date.now() - new Date(message.createdAt).getTime());
-        await sendMessage(message.channelId, `Pong! 🏓 **${ping}ms**`, message.id);
+        const ping = Math.abs(
+            Date.now() -
+                new Date(
+                    message.createdAt
+                ).getTime()
+        );
+
+        await sendMessage(
+            message.channelId,
+            `Pong! 🏓 **${ping}ms**`,
+            message.id
+        );
+
         return;
     }
 
     if (command === "!help") {
-        await sendMessage(message.channelId, "", message.id, {
-            title: "📚 Lista de Comandos",
-            color: "#5865F2",
-            description: "**!ping** - Verifica a latência do bot.\n**!hello** - O bot diz olá para você.\n**!say <texto>** - Faz o bot repetir o que você escreveu.\n**!userinfo** - Mostra suas informações.\n**!avatar** - Mostra o seu avatar.\n**!coinflip** - Joga uma moeda.\n**!roll [lados]** - Rola um dado.\n**!embed** - Envia um embed de teste.",
-        });
+        await sendMessage(
+            message.channelId,
+            "",
+            message.id,
+            {
+                title:
+                    "📚 Lista de Comandos",
+                color: "#5865F2",
+                description:
+                    "**!ping** - Verifica a latência do bot.\n" +
+                    "**!hello** - O bot diz olá para você.\n" +
+                    "**!say <texto>** - Faz o bot repetir o que você escreveu.\n" +
+                    "**!userinfo** - Mostra suas informações.\n" +
+                    "**!avatar** - Mostra o seu avatar.\n" +
+                    "**!coinflip** - Joga uma moeda.\n" +
+                    "**!roll [lados]** - Rola um dado.\n" +
+                    "**!embed** - Envia um embed de teste.",
+            }
+        );
+
         return;
     }
 
     if (command === "!say") {
-        const text = args.join(" ");
+        const text =
+            args.join(" ");
+
         if (!text) {
-            await sendMessage(message.channelId, "Você precisa me dizer o que repetir! Use: `!say <texto>`", message.id);
+            await sendMessage(
+                message.channelId,
+                "Você precisa me dizer o que repetir! Use: `!say <texto>`",
+                message.id
+            );
+
             return;
         }
-        await sendMessage(message.channelId, text);
+
+        await sendMessage(
+            message.channelId,
+            text
+        );
+
         return;
     }
 
     if (command === "!userinfo") {
-        const avatarMarkdown = message.author.avatarUrl ? `\n\n![Avatar](${message.author.avatarUrl})` : "";
-        
-        await sendMessage(message.channelId, "", message.id, {
-            title: "👤 Informações do Usuário",
-            color: "#00FF00",
-            description: `**Nome Global:** ${message.author.globalName || "Nenhum"}\n**Username:** @${message.author.username}\n**ID:** ${message.author.id}${avatarMarkdown}`,
-        });
+        const avatarMarkdown =
+            message.author.avatarUrl
+                ? `\n\n![Avatar](${message.author.avatarUrl})`
+                : "";
+
+        await sendMessage(
+            message.channelId,
+            "",
+            message.id,
+            {
+                title:
+                    "👤 Informações do Usuário",
+                color: "#00FF00",
+                description:
+                    `**Nome Global:** ${
+                        message.author.globalName ||
+                        "Nenhum"
+                    }\n` +
+                    `**Username:** @${message.author.username}\n` +
+                    `**ID:** ${message.author.id}` +
+                    avatarMarkdown,
+            }
+        );
+
         return;
     }
 
     if (command === "!avatar") {
         if (!message.author.avatarUrl) {
-            await sendMessage(message.channelId, "Você não possui um avatar!", message.id);
+            await sendMessage(
+                message.channelId,
+                "Você não possui um avatar!",
+                message.id
+            );
+
             return;
         }
-        
-        await sendMessage(message.channelId, "", message.id, {
-            title: `Avatar de @${message.author.username}`,
-            color: "#FF00FF",
-            description: `![Avatar](${message.author.avatarUrl})`
-        });
+
+        await sendMessage(
+            message.channelId,
+            "",
+            message.id,
+            {
+                title: `Avatar de @${message.author.username}`,
+                color: "#FF00FF",
+                description:
+                    `![Avatar](${message.author.avatarUrl})`,
+            }
+        );
+
         return;
     }
 
     if (command === "!coinflip") {
-        const result = Math.random() < 0.5 ? "Cara 🪙" : "Coroa 🪙";
-        await sendMessage(message.channelId, `A moeda caiu em: **${result}**`, message.id);
+        const result =
+            Math.random() < 0.5
+                ? "Cara 🪙"
+                : "Coroa 🪙";
+
+        await sendMessage(
+            message.channelId,
+            `A moeda caiu em: **${result}**`,
+            message.id
+        );
+
         return;
     }
 
     if (command === "!roll") {
         let sides = 6;
-        if (args.length > 0 && !isNaN(parseInt(args[0]))) {
-            sides = parseInt(args[0]);
+
+        if (
+            args.length > 0 &&
+            !isNaN(
+                parseInt(args[0], 10)
+            )
+        ) {
+            sides = parseInt(
+                args[0],
+                10
+            );
         }
-        
-        if (sides < 2) sides = 6;
-        
-        const result = Math.floor(Math.random() * sides) + 1;
-        await sendMessage(message.channelId, `🎲 Você rolou um dado de ${sides} lados e tirou: **${result}**`, message.id);
+
+        if (sides < 2) {
+            sides = 6;
+        }
+
+        const result =
+            Math.floor(
+                Math.random() * sides
+            ) + 1;
+
+        await sendMessage(
+            message.channelId,
+            `🎲 Você rolou um dado de ${sides} lados e tirou: **${result}**`,
+            message.id
+        );
+
         return;
     }
 
     if (command === "!hello") {
-        const name = message.author.globalName ?? message.author.username;
-        await sendMessage(message.channelId, `Olá, ${name}! 👋`, message.id);
+        const name =
+            message.author.globalName ??
+            message.author.username;
+
+        await sendMessage(
+            message.channelId,
+            `Olá, ${name}! 👋`,
+            message.id
+        );
+
         return;
     }
 
     if (command === "!embed") {
-        await sendMessage(message.channelId, "", message.id, {
-            title: "dfghdfgasdhfgdhgdfgasfdhgfdg",
-            description: "oajsdpoihashdfkjlfhgdlkjhgipashjdiphgfipdjhgapsdóp",
-            color: "#FF0000",
-            footer: { text: "Typecord • Bot" },
-        });
+        await sendMessage(
+            message.channelId,
+            "",
+            message.id,
+            {
+                title:
+                    "Embed de teste",
+                description:
+                    "Este é um embed enviado pelo Typecord Bot.",
+                color: "#5865F2",
+                footer: {
+                    text:
+                        "Typecord • Bot",
+                },
+                timestamp:
+                    new Date().toISOString(),
+            }
+        );
+
+        return;
+    }
+}
+
+async function handleGuildMemberAdd(payload: any) {
+    if (!payload || !payload.username) {
+        console.error("❌ Payload de GUILD_MEMBER_ADD inválido:", payload);
         return;
     }
 
-    console.log("ℹ️ Nenhum comando reconhecido ou prefixo inválido.");
-}
+    const { id, guildId, username, globalName, avatarUrl } = payload;
+    const displayName = globalName ?? username;
 
+    console.log("");
+    console.log("👤 Novo membro recebido");
+    console.log(`🏠 Guild ID: ${guildId ?? "Desconhecido"}`);
+    console.log(`🆔 User ID: ${id ?? "Desconhecido"}`);
+    console.log(`👤 Username: @${username}`);
+
+    if (!WELCOME_CHANNEL_ID) {
+        console.warn("⚠️ WELCOME_CHANNEL_ID não configurado.");
+        return;
+    }
+ 
+    const resolvedAvatarUrl = avatarUrl
+        ? (avatarUrl.startsWith("http") ? avatarUrl : `${TYPECORD_URL}/api/files?key=${encodeURIComponent(avatarUrl)}`)
+        : undefined;
+
+    const embed: BotEmbed = {
+        title: "🎉 Novo membro!",
+        description:
+            `Seja muito bem-vindo(a), **${displayName}**! 👋\n\n` +
+            `Esperamos que você aproveite o servidor e se divirta por aqui!`,
+        color: "#5865F2",
+        author: {
+            name: `@${username}`,
+            iconUrl: resolvedAvatarUrl,
+        },
+        thumbnail: resolvedAvatarUrl
+            ? {
+                  url: resolvedAvatarUrl,
+              }
+            : undefined,
+        footer: {
+            text: "Typecord • Bem-vindo!",
+        },
+        timestamp: new Date().toISOString(),
+    };
+
+    try {
+        await sendMessage(
+            WELCOME_CHANNEL_ID,
+            "",
+            undefined,
+            embed
+        );
+        console.log(`✅ Mensagem de boas-vindas enviada para ${displayName}.`);
+    } catch (error) {
+        console.error(`❌ Erro ao enviar mensagem de boas-vindas para ${displayName}:`, error);
+    }
+}
 async function connect() {
     if (shuttingDown) {
         return;
@@ -381,73 +654,172 @@ async function connect() {
     }
 
     pusher = null;
-    const gateway = await createGatewaySession();
-    const authEndpoint = gateway.pusher.authEndpoint.startsWith("http")
-        ? gateway.pusher.authEndpoint
-        : `${TYPECORD_URL}${gateway.pusher.authEndpoint}`;
 
-    const client = new Pusher(gateway.pusher.key, {
-        cluster: gateway.pusher.cluster,
-        forceTLS: true,
-        authEndpoint,
-        auth: {
-            headers: {
-                Authorization: `Bearer ${gateway.session.token}`,
-            },
-        },
-    });
+    const gateway =
+        await createGatewaySession();
+
+    const authEndpoint =
+        gateway.pusher.authEndpoint.startsWith(
+            "http"
+        )
+            ? gateway.pusher
+                  .authEndpoint
+            : `${TYPECORD_URL}${gateway.pusher.authEndpoint}`;
+
+    const client =
+        new Pusher(
+            gateway.pusher.key,
+            {
+                cluster:
+                    gateway.pusher
+                        .cluster,
+                forceTLS: true,
+                authEndpoint,
+                auth: {
+                    headers: {
+                        Authorization:
+                            `Bearer ${gateway.session.token}`,
+                    },
+                },
+            }
+        );
 
     pusher = client;
 
-    client.connection.bind("connecting", () => {
-        console.log("🟡 Conectando ao Pusher...");
-    });
-
-    client.connection.bind("connected", () => {
-        console.log("🟢 Pusher conectado!");
-    });
-
-    client.connection.bind("disconnected", () => {
-        console.log("🔴 Pusher desconectado.");
-        scheduleReconnect();
-    });
-
-    client.connection.bind("error", (error: unknown) => {
-        console.error("❌ Erro do Pusher:", error);
-    });
-
-    const channel = client.subscribe(gateway.pusher.channel);
-
-    channel.bind("pusher:subscription_succeeded", () => {
-        console.log("🔐 Canal do bot autenticado.");
-    });
-
-    channel.bind("pusher:subscription_error", (error: unknown) => {
-        console.error("❌ Erro na autenticação do canal:", error);
-    });
-
-    channel.bind("READY", (payload: GatewayPayload<ReadyData>) => {
-        console.log("");
-        console.log("🤖 ========================================");
-        console.log("🤖 TYPECORD BOT ONLINE");
-        console.log("🤖 ========================================");
-        console.log(`🆔 User ID: ${payload.d.user.id}`);
-        console.log(`🏠 Guilds: ${payload.d.guilds.length}`);
-        console.log("");
-        console.log("💡 Comandos carregados. Use !help no chat.");
-        console.log("");
-    });
-
-    channel.bind("MESSAGE_CREATE", async (payload: GatewayPayload<MessageCreateData>) => {
-        console.log("📨 Evento MESSAGE_CREATE recebido!");
-        try {
-            await handleMessage(payload.d);
-        } catch (error) {
-            console.error("❌ Erro processando MESSAGE_CREATE:", error);
+    client.connection.bind(
+        "connecting",
+        () => {
+            console.log(
+                "🟡 Conectando ao Pusher..."
+            );
         }
-    });
+    );
 
-    console.log("👂 Aguardando eventos...");
+    client.connection.bind(
+        "connected",
+        () => {
+            console.log(
+                "🟢 Pusher conectado!"
+            );
+        }
+    );
+
+    client.connection.bind(
+        "disconnected",
+        () => {
+            console.log(
+                "🔴 Pusher desconectado."
+            );
+
+            scheduleReconnect();
+        }
+    );
+
+    client.connection.bind(
+        "error",
+        (error: unknown) => {
+            console.error(
+                "❌ Erro do Pusher:",
+                error
+            );
+        }
+    );
+
+    const channel =
+        client.subscribe(
+            gateway.pusher.channel
+        );
+
+    channel.bind(
+        "pusher:subscription_succeeded",
+        () => {
+            console.log(
+                "🔐 Canal do bot autenticado."
+            );
+        }
+    );
+
+    channel.bind(
+        "pusher:subscription_error",
+        (error: unknown) => {
+            console.error(
+                "❌ Erro na autenticação do canal:",
+                error
+            );
+        }
+    );
+
+    channel.bind(
+        "READY",
+        (
+            payload: GatewayPayload<ReadyData>
+        ) => {
+            console.log("");
+            console.log(
+                "🤖 ========================================"
+            );
+            console.log(
+                "🤖 TYPECORD BOT ONLINE"
+            );
+            console.log(
+                "🤖 ========================================"
+            );
+            console.log(
+                `🆔 User ID: ${payload.d.user.id}`
+            );
+            console.log(
+                `🏠 Guilds: ${payload.d.guilds.length}`
+            );
+            console.log("");
+            console.log(
+                "💡 Comandos carregados. Use !help no chat."
+            );
+            console.log(
+                "👋 Sistema de boas-vindas carregado."
+            );
+            console.log("");
+        }
+    );
+
+    channel.bind(
+        "MESSAGE_CREATE",
+        async (
+            payload: GatewayPayload<MessageCreateData>
+        ) => {
+            try {
+                await handleMessage(
+                    payload.d
+                );
+            } catch (error) {
+                console.error(
+                    "❌ Erro processando MESSAGE_CREATE:",
+                    error
+                );
+            }
+        }
+    );
+
+    channel.bind(
+        "GUILD_MEMBER_ADD",
+        async (
+            payload: GatewayPayload<GuildMemberAddData>
+        ) => {
+            try {
+                await handleGuildMemberAdd(
+                    payload.d
+                );
+            } catch (error) {
+                console.error(
+                    "❌ Erro processando GUILD_MEMBER_ADD:",
+                    error
+                );
+            }
+        }
+    );
+
+    console.log(
+        "👂 Aguardando eventos..."
+    );
 }
 
 function scheduleReconnect() {
@@ -459,30 +831,52 @@ function scheduleReconnect() {
         return;
     }
 
-    console.log("🔄 Reconectando em 5 segundos...");
+    console.log(
+        "🔄 Reconectando em 5 segundos..."
+    );
 
-    reconnectTimer = setTimeout(async () => {
-        reconnectTimer = null;
-        try {
-            await connect();
-        } catch (error) {
-            console.error("❌ Falha ao reconectar:", error);
-            scheduleReconnect();
-        }
-    }, 5000);
+    reconnectTimer =
+        setTimeout(
+            async () => {
+                reconnectTimer =
+                    null;
+
+                try {
+                    await connect();
+                } catch (error) {
+                    console.error(
+                        "❌ Falha ao reconectar:",
+                        error
+                    );
+
+                    scheduleReconnect();
+                }
+            },
+            5000
+        );
 }
 
 async function start() {
     console.log("");
-    console.log("================================");
-    console.log("       TYPECORD BOT");
-    console.log("================================");
+    console.log(
+        "================================"
+    );
+    console.log(
+        "       TYPECORD BOT"
+    );
+    console.log(
+        "================================"
+    );
     console.log("");
 
     try {
         await connect();
     } catch (error) {
-        console.error("❌ Não foi possível iniciar o bot:", error);
+        console.error(
+            "❌ Não foi possível iniciar o bot:",
+            error
+        );
+
         scheduleReconnect();
     }
 }
@@ -493,10 +887,16 @@ function shutdown() {
     }
 
     shuttingDown = true;
-    console.log("🛑 Desligando bot...");
+
+    console.log(
+        "🛑 Desligando bot..."
+    );
 
     if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
+        clearTimeout(
+            reconnectTimer
+        );
+
         reconnectTimer = null;
     }
 
@@ -508,10 +908,18 @@ function shutdown() {
 
     pusher = null;
     currentSession = null;
+
     process.exit(0);
 }
 
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+process.on(
+    "SIGINT",
+    shutdown
+);
+
+process.on(
+    "SIGTERM",
+    shutdown
+);
 
 await start();

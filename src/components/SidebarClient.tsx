@@ -77,6 +77,7 @@ export default function Sidebar({ initialGuilds }: { initialGuilds: Guild[] }) {
           >
             <Plus className="h-6 w-6 transition-transform duration-200 group-hover:rotate-90" />
           </button>
+
         </div>
       </div>
 
