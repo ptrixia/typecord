@@ -1,41 +1,98 @@
 "use client";
 
-import { Search, Users } from "lucide-react";
-import type { DirectMessage } from "./DirectMessagesLayout";
-import ChatArea from "../Guild/ChatArea";
+import { useMemo, useState } from "react";
+
+import ChatArea from "@/components/Guild/ChatArea";
+import type {
+  DirectConversationSummary,
+  DirectUser,
+  RelationshipSummary,
+} from "@/types/direct-messages";
+
+import GroupSettingsModal from "./GroupSettingsModal";
 
 type Props = {
-  conversation: DirectMessage;
+  conversation: DirectConversationSummary;
+  currentUser: DirectUser;
+  relationships: RelationshipSummary[];
+  onOpenProfile: (user: DirectUser) => void;
+  onChanged: () => Promise<void> | void;
+  onConversationRemoved: () => Promise<void> | void;
 };
 
-const messages = [
-  {
-    id: 1,
-    user: "member1",
-    color: "#36a85f",
-    time: "14:02",
-    message: "oi1",
-  },
-  {
-    id: 2,
-    user: "member2",
-    color: "#f6a019",
-    time: "14:05",
-    message: "oi2",
-  },
-  {
-    id: 3,
-    user: "member3",
-    color: "#e83d91",
-    time: "14:07",
-    message: "oi3",
-  },
-];
+export default function DirectMessageChat({
+  conversation,
+  currentUser,
+  relationships,
+  onOpenProfile,
+  onChanged,
+  onConversationRemoved,
+}: Props) {
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
-export default function DirectMessageChat({ conversation }: Props) {
+  const otherUser = useMemo(() => {
+    if (conversation.type !== "DM") return null;
+
+    return (
+      conversation.members.find(
+        (member) => member.id !== currentUser.id,
+      ) ??
+      conversation.members[0] ??
+      null
+    );
+  }, [conversation, currentUser.id]);
+
+  const channel = useMemo(
+    () => ({
+      id: conversation.id,
+      name: conversation.displayName,
+      avatarUrl: conversation.displayAvatarUrl,
+      directType: conversation.type,
+      type:
+        conversation.type === "GROUP"
+          ? "DIRECT_GROUP"
+          : "DIRECT_MESSAGE",
+      members: conversation.members,
+    }),
+    [conversation],
+  );
+
+  function handleOpenDetails() {
+    if (conversation.type === "GROUP") {
+      setSettingsOpen(true);
+      return;
+    }
+
+    if (otherUser) {
+      onOpenProfile(otherUser);
+    }
+  }
+
   return (
-    <main className="flex min-w-0 flex-1 flex-col bg-white dark:bg-zinc-950">
-        <ChatArea channel={null} />
-    </main>
+    <>
+      <main className="flex min-w-0 flex-1 bg-white dark:bg-zinc-950">
+        <ChatArea
+          channel={channel}
+          currentUser={currentUser}
+          users={conversation.members}
+          channels={[]}
+          mode="direct"
+          onOpenDetails={handleOpenDetails}
+          onDirectConversationChanged={onChanged}
+        />
+      </main>
+
+      {conversation.type === "GROUP" && (
+        <GroupSettingsModal
+          isOpen={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          conversation={conversation}
+          currentUserId={currentUser.id}
+          relationships={relationships}
+          onChanged={onChanged}
+          onConversationRemoved={onConversationRemoved}
+        />
+      )}
+    </>
   );
 }

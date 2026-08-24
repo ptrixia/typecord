@@ -17,8 +17,8 @@ export default async function ChannelsPage({ params }: ChannelsPageProps) {
 
   const currentUser = await getCurrentUser();
 
-  let currentGuild = null;
-  let currentMember = null;
+  let currentGuild: Awaited<ReturnType<typeof getGuildById>> | null = null;
+  let currentMember: NonNullable<Awaited<ReturnType<typeof getGuildById>>>["members"][number] | null = null;
 
   if (!isDirectMessages) {
     currentGuild = await getGuildById(id);
@@ -26,7 +26,7 @@ export default async function ChannelsPage({ params }: ChannelsPageProps) {
     if (currentGuild && currentUser) {
       currentMember = currentGuild.members.find(
         (m: any) => m.userId === currentUser.id
-      );
+      ) ?? null;
     }
   }
 

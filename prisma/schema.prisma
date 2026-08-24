@@ -21,7 +21,7 @@ model GatewaySession {
   id String @id @default(uuid())
 
   botId String
-  bot   Bot @relation(fields: [botId], references: [id], onDelete: Cascade)
+  bot   Bot    @relation(fields: [botId], references: [id], onDelete: Cascade)
 
   sessionTokenHash String @unique
 
@@ -40,10 +40,10 @@ model Bot {
   id String @id @default(uuid())
 
   userId String @unique
-  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User   @relation("BotAccount", fields: [userId], references: [id], onDelete: Cascade)
 
   ownerId String
-  owner   User @relation("BotOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  owner   User   @relation("BotOwner", fields: [ownerId], references: [id], onDelete: Cascade)
 
   tokenHash String @unique
 
@@ -59,31 +59,31 @@ model Bot {
 }
 
 model Embed {
-    id          String   @id @default(uuid())
-    title       String?  @db.Text
-    description String?  @db.Text
-    url         String?  @db.Text
-    color       String?
-    timestamp   String?
-    
-    authorName  String?
-    authorUrl   String?  @db.Text
-    authorIcon  String?  @db.Text
+  id          String  @id @default(uuid())
+  title       String? @db.Text
+  description String? @db.Text
+  url         String? @db.Text
+  color       String?
+  timestamp   String?
 
-    footerText  String?  @db.Text
-    footerIcon  String?  @db.Text
+  authorName String?
+  authorUrl  String? @db.Text
+  authorIcon String? @db.Text
 
-    imageUrl    String?  @db.Text
-    thumbnailUrl String? @db.Text
+  footerText String? @db.Text
+  footerIcon String? @db.Text
 
-    fields      Json?
+  imageUrl     String? @db.Text
+  thumbnailUrl String? @db.Text
 
-    messageId   String
-    message     Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  fields Json?
 
-    createdAt   DateTime @default(now())
+  messageId String
+  message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
-    @@index([messageId])
+  createdAt DateTime @default(now())
+
+  @@index([messageId])
 }
 
 model User {
@@ -97,7 +97,7 @@ model User {
   bio          String?    @db.Text
   status       UserStatus @default(OFFLINE)
 
-  bot          Bot?
+  bot       Bot?  @relation("BotAccount")
   botsOwned Bot[] @relation("BotOwner")
 
   guildsOwned   Guild[]
@@ -110,12 +110,18 @@ model User {
   friendRequestsSent     Relationship[] @relation("UserOne")
   friendRequestsReceived Relationship[] @relation("UserTwo")
 
+  directConversationsOwned       DirectConversation[]            @relation("DirectConversationOwner")
+  directConversationParticipants DirectConversationParticipant[] @relation("DirectConversationParticipants")
+  directMessagesAuthored         DirectMessage[]                 @relation("DirectMessagesAuthored")
+  directMessageReactions         DirectMessageReaction[]         @relation("DirectMessageReactions")
+
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   emailVerified DateTime?
   accounts      Account[]
   sessions      Session[]
 }
+
 model Account {
   id                String  @id @default(uuid())
   userId            String
@@ -178,6 +184,111 @@ model Relationship {
 }
 
 // ------------------------------------------------------
+// MENSAGENS DIRETAS
+// ------------------------------------------------------
+
+enum DirectConversationType {
+  DM
+  GROUP
+}
+
+model DirectConversation {
+  id      String                 @id @default(uuid())
+  type    DirectConversationType
+  name    String?
+  iconUrl String?                @db.Text
+  dmKey   String?                @unique
+
+  ownerId String?
+  owner   User?   @relation("DirectConversationOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+
+  participants DirectConversationParticipant[]
+  messages     DirectMessage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerId])
+  @@index([updatedAt])
+}
+
+model DirectConversationParticipant {
+  id String @id @default(uuid())
+
+  conversationId String
+  conversation   DirectConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation("DirectConversationParticipants", fields: [userId], references: [id], onDelete: Cascade)
+
+  isHidden   Boolean   @default(false)
+  joinedAt   DateTime  @default(now())
+  lastReadAt DateTime?
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+  @@index([conversationId])
+}
+
+model DirectMessage {
+  id      String  @id @default(uuid())
+  content String  @db.Text
+  deleted Boolean @default(false)
+
+  conversationId String
+  conversation   DirectConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  authorId String
+  author   User   @relation("DirectMessagesAuthored", fields: [authorId], references: [id], onDelete: Cascade)
+
+  replyToId String?
+  replyTo   DirectMessage?  @relation("DirectMessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies   DirectMessage[] @relation("DirectMessageReplies")
+
+  attachments DirectMessageAttachment[]
+  reactions   DirectMessageReaction[]
+
+  createdAt DateTime  @default(now())
+  editedAt  DateTime?
+
+  @@index([conversationId, createdAt])
+  @@index([authorId])
+  @@index([replyToId])
+}
+
+model DirectMessageAttachment {
+  id       String @id @default(uuid())
+  url      String @db.Text
+  filename String
+  fileSize Int
+  fileType String
+
+  messageId String
+  message   DirectMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([messageId])
+}
+
+model DirectMessageReaction {
+  id    String @id @default(uuid())
+  emoji String
+
+  messageId String
+  message   DirectMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation("DirectMessageReactions", fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+  @@index([userId])
+}
+
+// ------------------------------------------------------
 // GUILDS (SERVIDORES), CARGOS E MEMBROS
 // ------------------------------------------------------
 
@@ -187,9 +298,7 @@ model Guild {
   iconUrl   String? @db.Text
   bannerUrl String? @db.Text
   vanityUrl String? @unique
-  verified Boolean @default(false)
-
-
+  verified  Boolean @default(false)
 
   ownerId String
   owner   User   @relation(fields: [ownerId], references: [id])
@@ -216,7 +325,7 @@ model Role {
   position    Int
   permissions String  @default("0")
 
-  mentionable Boolean  @default(false)
+  mentionable Boolean @default(false)
 
   managed   Boolean @default(false)
   isDefault Boolean @default(false)
@@ -325,31 +434,31 @@ model Channel {
 // ------------------------------------------------------
 
 model Message {
-    id        String   @id @default(uuid())
-    content   String   @db.Text
-    deleted   Boolean  @default(false)
-    isPinned  Boolean  @default(false)
+  id       String  @id @default(uuid())
+  content  String  @db.Text
+  deleted  Boolean @default(false)
+  isPinned Boolean @default(false)
 
-    memberId String
-    member   Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  memberId String
+  member   Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
 
-    channelId String
-    channel   Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  channelId String
+  channel   Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
 
-    replyToId String?
-    replyTo   Message?  @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
-    replies   Message[] @relation("MessageReplies")
+  replyToId String?
+  replyTo   Message?  @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies   Message[] @relation("MessageReplies")
 
-    attachments Attachment[]
-    embeds      Embed[]
-    reactions   Reaction[]
+  attachments Attachment[]
+  embeds      Embed[]
+  reactions   Reaction[]
 
-    createdAt DateTime  @default(now())
-    editedAt  DateTime?
+  createdAt DateTime  @default(now())
+  editedAt  DateTime?
 
-    @@index([channelId])
-    @@index([memberId])
-    @@index([replyToId])
+  @@index([channelId])
+  @@index([memberId])
+  @@index([replyToId])
 }
 
 model Attachment {
@@ -409,20 +518,20 @@ model Reaction {
 // ------------------------------------------------------
 
 model Invite {
-  id        String   @id @default(uuid())
-  code      String   @unique
+  id   String @id @default(uuid())
+  code String @unique
 
-  uses      Int      @default(0)
-  maxUses   Int      @default(0)
+  uses    Int @default(0)
+  maxUses Int @default(0)
 
-  guildId   String
-  guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  guildId String
+  guild   Guild  @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   creatorId String?
-  creator   User?    @relation(fields: [creatorId], references: [id], onDelete: SetNull)
+  creator   User?   @relation(fields: [creatorId], references: [id], onDelete: SetNull)
 
   expiresAt DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([guildId])
   @@index([creatorId])

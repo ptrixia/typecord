@@ -22,11 +22,16 @@ import MessageItem, { MessageData } from "../Message/MessageItem";
 import { sendMessageAction } from "@/actions/messages";
 import { pusherClient } from "@/lib/pusher";
 
+type ChatAreaMode = "guild" | "direct";
+
 interface ChatAreaProps {
     channel: any;
     currentUser?: any;
     users?: any[];
     channels?: any[];
+    mode?: ChatAreaMode;
+    onOpenDetails?: () => void;
+    onDirectConversationChanged?: () => Promise<void> | void;
 }
 
 interface MentionSuggestion {
@@ -47,38 +52,142 @@ function normalizeMessage(message: any): MessageData {
     if (typeof message?.content === "string") {
         try {
             const json = JSON.parse(message.content);
-            if (json && typeof json === "object" && ("content" in json || "attachments" in json || "reply" in json)) {
+
+            if (
+                json &&
+                typeof json === "object" &&
+                ("content" in json || "attachments" in json || "reply" in json)
+            ) {
                 parsed = { ...message, ...json };
             }
         } catch {}
     }
 
-    const memberUser = parsed.member?.user || {};
-    const authorName = parsed.author || parsed.authorName || memberUser.globalName || memberUser.displayName || memberUser.username || "Usuário";
-    const authorId = parsed.authorId || parsed.userId || memberUser.id;
-    const avatarUrl = parsed.avatarUrl ?? memberUser.avatarUrl ?? memberUser.avatar ?? null;
-    const isWebhookMessage = memberUser.email === "webhook@typecord.bot" || parsed.isWebhook;
+    const structuredAuthor =
+        parsed.author &&
+        typeof parsed.author === "object" &&
+        !Array.isArray(parsed.author)
+            ? parsed.author
+            : null;
+
+    const memberUser = structuredAuthor || parsed.member?.user || {};
+
+    const authorName =
+        typeof parsed.author === "string"
+            ? parsed.author
+            : parsed.authorName ||
+              memberUser.globalName ||
+              memberUser.displayName ||
+              memberUser.username ||
+              "Usuário";
+
+    const authorId =
+        parsed.authorId ||
+        parsed.userId ||
+        structuredAuthor?.id ||
+        memberUser.id;
+
+    const avatarUrl =
+        parsed.avatarUrl ??
+        structuredAuthor?.avatarUrl ??
+        memberUser.avatarUrl ??
+        memberUser.avatar ??
+        null;
+
+    const isWebhookMessage =
+        memberUser.email === "webhook@typecord.bot" ||
+        Boolean(parsed.isWebhook);
+
+    const normalizedReply = parsed.reply
+        ? {
+              messageId: String(
+                  parsed.reply.messageId ??
+                  parsed.reply.id ??
+                  parsed.replyToId ??
+                  "",
+              ),
+              author:
+                  typeof parsed.reply.author === "string"
+                      ? parsed.reply.author
+                      : parsed.reply.author?.globalName ||
+                        parsed.reply.author?.username ||
+                        "Usuário",
+              content: parsed.reply.deleted
+                  ? "Mensagem apagada"
+                  : parsed.reply.content || "",
+              avatarUrl:
+                  parsed.reply.avatarUrl ??
+                  parsed.reply.author?.avatarUrl ??
+                  null,
+          }
+        : null;
+
+    const normalizedAttachments = Array.isArray(parsed.attachments)
+        ? parsed.attachments.map((attachment: any) => ({
+              ...attachment,
+              id: String(attachment.id ?? crypto.randomUUID()),
+              url: attachment.url ?? attachment.key ?? null,
+              filename: attachment.filename ?? attachment.name ?? "arquivo",
+              fileSize: attachment.fileSize ?? attachment.size ?? 0,
+              fileType:
+                  attachment.fileType ??
+                  attachment.contentType ??
+                  "application/octet-stream",
+              key: attachment.key ?? attachment.url ?? undefined,
+              name: attachment.name ?? attachment.filename ?? "arquivo",
+              size: attachment.size ?? attachment.fileSize ?? 0,
+              contentType:
+                  attachment.contentType ??
+                  attachment.fileType ??
+                  "application/octet-stream",
+          }))
+        : [];
 
     return {
         id: String(parsed.id),
         isBot: Boolean(parsed.isBot),
         author: authorName,
         authorId: authorId ? String(authorId) : undefined,
-        authorColor: isWebhookMessage ? "text-rose-500" : parsed.authorColor || "text-indigo-400",
-        avatarColor: isWebhookMessage ? "bg-rose-600" : parsed.avatarColor || "bg-indigo-600",
-        avatarUrl: avatarUrl,
-        createdAt: parsed.createdAt || (parsed.createdAt ? new Date(parsed.createdAt).toISOString() : new Date().toISOString()),
+        authorColor:
+            isWebhookMessage
+                ? "text-rose-500"
+                : parsed.authorColor || "text-indigo-400",
+        avatarColor:
+            isWebhookMessage
+                ? "bg-rose-600"
+                : parsed.avatarColor || "bg-indigo-600",
+        avatarUrl,
+        createdAt:
+            typeof parsed.createdAt === "string"
+                ? parsed.createdAt
+                : parsed.createdAt
+                  ? new Date(parsed.createdAt).toISOString()
+                  : new Date().toISOString(),
         time: parsed.time || undefined,
-        content: parsed.content || "",
-        reply: parsed.reply || null,
-        attachments: Array.isArray(parsed.attachments) ? parsed.attachments : [],
+        content: parsed.deleted ? "" : parsed.content || "",
+        reply: normalizedReply,
+        attachments: normalizedAttachments,
         embeds: Array.isArray(parsed.embeds) ? parsed.embeds : [],
         isPending: parsed.isPending,
         isWebhook: isWebhookMessage,
     };
 }
 
-export default function ChatArea({ channel, currentUser, users, channels }: ChatAreaProps) {
+export default function ChatArea({
+    channel,
+    currentUser,
+    users,
+    channels,
+    mode = "guild",
+    onOpenDetails,
+    onDirectConversationChanged,
+}: ChatAreaProps) {
+    const isDirect =
+        mode === "direct" ||
+        channel?.type === "DIRECT_MESSAGE" ||
+        channel?.type === "DIRECT_GROUP" ||
+        channel?.directType === "DM" ||
+        channel?.directType === "GROUP";
     const [isMounted, setIsMounted] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -131,31 +240,59 @@ export default function ChatArea({ channel, currentUser, users, channels }: Chat
         }
 
         try {
-            const url = cursor 
-                ? `/api/messages?channelId=${channel.id}&cursor=${cursor}` 
-                : `/api/messages?channelId=${channel.id}`;
-            
-            const res = await fetch(url);
-            if (!res.ok) return;
+            const url = isDirect
+                ? cursor
+                    ? `/api/direct-messages/conversations/${channel.id}/messages?limit=50&before=${encodeURIComponent(cursor)}`
+                    : `/api/direct-messages/conversations/${channel.id}/messages?limit=50`
+                : cursor
+                  ? `/api/messages?channelId=${channel.id}&cursor=${encodeURIComponent(cursor)}`
+                  : `/api/messages?channelId=${channel.id}`;
+
+            const res = await fetch(url, { cache: "no-store" });
+
+            if (!res.ok) {
+                throw new Error("Não foi possível carregar as mensagens.");
+            }
 
             const data = await res.json();
-            const rawItems = Array.isArray(data.items) ? data.items : [];
+
+            const rawItems = isDirect
+                ? Array.isArray(data.messages)
+                    ? data.messages
+                    : []
+                : Array.isArray(data.items)
+                  ? data.items
+                  : [];
+
             const normalizedItems = rawItems.map(normalizeMessage);
+            const orderedItems = isDirect
+                ? normalizedItems
+                : normalizedItems.reverse();
 
-            const reversedItems = normalizedItems.reverse();
-
-            setHasMore(Boolean(data.nextCursor));
+            setHasMore(
+                isDirect
+                    ? Boolean(data.hasMore)
+                    : Boolean(data.nextCursor),
+            );
 
             setMessages((prev) => {
-                if (cursor) {
-                    const existingIds = new Set(prev.map((m) => m.id));
-                    const newUniqueItems = reversedItems.filter((m: { id: string; }) => !existingIds.has(m.id));
-                    return [...newUniqueItems, ...prev];
+                if (!cursor) {
+                    return orderedItems;
                 }
-                return reversedItems;
+
+                const existingIds = new Set(
+                    prev.map((message) => message.id),
+                );
+
+                const newUniqueItems = orderedItems.filter(
+                    (message: MessageData) =>
+                        !existingIds.has(message.id),
+                );
+
+                return [...newUniqueItems, ...prev];
             });
         } catch (error) {
-            console.error(error);
+            console.error("[CHAT_MESSAGES_GET]", error);
         } finally {
             setIsLoading(false);
             setIsLoadingMore(false);
@@ -164,48 +301,144 @@ export default function ChatArea({ channel, currentUser, users, channels }: Chat
 
     useEffect(() => {
         if (!channel?.id) return;
+
         setMessages([]);
         setHasMore(true);
+        setTypingUsers([]);
         fetchMessages();
 
-        const channelName = `channel-${channel.id}`;
+        const channelName = isDirect
+            ? `direct-conversation-${channel.id}`
+            : `channel-${channel.id}`;
+
         const pusherChannel = pusherClient.subscribe(channelName);
 
         const handleNewMessage = (incoming: any) => {
             const newMessage = normalizeMessage(incoming);
 
             setMessages((prev) => {
-                if (prev.some((m) => m.id === newMessage.id)) return prev;
+                if (
+                    prev.some(
+                        (message) => message.id === newMessage.id,
+                    )
+                ) {
+                    return prev;
+                }
+
                 return [...prev, newMessage];
             });
 
             requestAnimationFrame(() => {
-                messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+                messagesEndRef.current?.scrollIntoView({
+                    behavior: "smooth",
+                });
             });
         };
 
-        const handleTyping = (data: { userName: string }) => {
-            if (data.userName === currentUserName) return;
+        const handleTyping = (data: {
+            userName: string;
+            userId?: string;
+        }) => {
+            if (
+                data.userId === currentUserId ||
+                data.userName === currentUserName
+            ) {
+                return;
+            }
 
             setTypingUsers((prev) => {
                 if (prev.includes(data.userName)) return prev;
                 return [...prev, data.userName];
             });
 
-            setTimeout(() => {
-                setTypingUsers((prev) => prev.filter((name) => name !== data.userName));
+            window.setTimeout(() => {
+                setTypingUsers((prev) =>
+                    prev.filter(
+                        (name) => name !== data.userName,
+                    ),
+                );
             }, 3000);
         };
 
-        pusherChannel.bind("new-message", handleNewMessage);
+        const handleMessagesChanged = () => {
+            if (!isDirect) return;
+
+            fetch(
+                `/api/direct-messages/conversations/${channel.id}/messages?limit=50`,
+                { cache: "no-store" },
+            )
+                .then((response) => response.json())
+                .then((data) => {
+                    if (
+                        !data?.success ||
+                        !Array.isArray(data.messages)
+                    ) {
+                        return;
+                    }
+
+                    const latest =
+                        data.messages.map(normalizeMessage);
+
+                    setMessages((prev) => {
+                        const map =
+                            new Map<string, MessageData>();
+
+                        for (const message of prev) {
+                            map.set(message.id, message);
+                        }
+
+                        for (const message of latest) {
+                            map.set(message.id, message);
+                        }
+
+                        return Array.from(map.values()).sort(
+                            (a, b) =>
+                                new Date(
+                                    a.createdAt,
+                                ).getTime() -
+                                new Date(
+                                    b.createdAt,
+                                ).getTime(),
+                        );
+                    });
+                })
+                .catch(() => {});
+        };
+
+        pusherChannel.bind(
+            "new-message",
+            handleNewMessage,
+        );
         pusherChannel.bind("typing", handleTyping);
 
+        if (isDirect) {
+            pusherChannel.bind(
+                "messages-changed",
+                handleMessagesChanged,
+            );
+        }
+
         return () => {
-            pusherChannel.unbind("new-message", handleNewMessage);
-            pusherChannel.unbind("typing", handleTyping);
+            pusherChannel.unbind(
+                "new-message",
+                handleNewMessage,
+            );
+            pusherChannel.unbind(
+                "typing",
+                handleTyping,
+            );
+            pusherChannel.unbind(
+                "messages-changed",
+                handleMessagesChanged,
+            );
             pusherClient.unsubscribe(channelName);
         };
-    }, [channel?.id]);
+    }, [
+        channel?.id,
+        isDirect,
+        currentUserId,
+        currentUserName,
+    ]);
 
     useEffect(() => {
         if (!isLoading && messages.length > 0 && !isLoadingMore) {
@@ -217,8 +450,11 @@ export default function ChatArea({ channel, currentUser, users, channels }: Chat
         const target = e.currentTarget;
         if (target.scrollTop === 0 && hasMore && !isLoadingMore && messages.length > 0) {
             prevScrollHeightRef.current = target.scrollHeight;
-            const oldestMessageId = messages[0].id;
-            fetchMessages(oldestMessageId).then(() => {
+            const cursor = isDirect
+                ? messages[0].createdAt
+                : messages[0].id;
+
+            fetchMessages(cursor).then(() => {
                 if (chatContainerRef.current) {
                     const newScrollHeight = chatContainerRef.current.scrollHeight;
                     chatContainerRef.current.scrollTop = newScrollHeight - prevScrollHeightRef.current;
@@ -258,7 +494,7 @@ export default function ChatArea({ channel, currentUser, users, channels }: Chat
             });
         }
 
-        if (trigger === "#") {
+        if (trigger === "#" && !isDirect) {
             channelsList.forEach((item: any) => {
                 const id = String(item?.id ?? "");
                 const name = item?.name || "";
@@ -318,12 +554,33 @@ export default function ChatArea({ channel, currentUser, users, channels }: Chat
         updateMentionSuggestions(value, cursorPosition);
 
         const now = Date.now();
-        if (now - lastTypedRef.current > 2000 && channel?.id) {
+
+        if (
+            now - lastTypedRef.current > 2000 &&
+            channel?.id
+        ) {
             lastTypedRef.current = now;
-            fetch("/api/typing", {
+
+            const typingUrl = isDirect
+                ? "/api/direct-messages/typing"
+                : "/api/typing";
+
+            const typingBody = isDirect
+                ? {
+                      conversationId: channel.id,
+                      userName: currentUserName,
+                  }
+                : {
+                      channelId: channel.id,
+                      userName: currentUserName,
+                  };
+
+            fetch(typingUrl, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ channelId: channel.id, userName: currentUserName }),
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(typingBody),
             }).catch(() => {});
         }
     };
@@ -386,12 +643,33 @@ export default function ChatArea({ channel, currentUser, users, channels }: Chat
                 throw new Error(data.message || "Falha no upload");
             }
 
+            const uploadUrl =
+                data.url ||
+                data.publicUrl ||
+                null;
+
+            if (isDirect && !uploadUrl) {
+                throw new Error(
+                    "A API de upload não retornou a URL pública do arquivo.",
+                );
+            }
+
             const attachment = {
                 id: crypto.randomUUID(),
                 key: data.key,
+                url: uploadUrl,
                 name: data.name || file.name,
+                filename: data.name || file.name,
                 size: data.size ?? file.size,
-                contentType: data.contentType || file.type || "application/octet-stream",
+                fileSize: data.size ?? file.size,
+                contentType:
+                    data.contentType ||
+                    file.type ||
+                    "application/octet-stream",
+                fileType:
+                    data.contentType ||
+                    file.type ||
+                    "application/octet-stream",
             };
 
             setUploadingFiles((prev) => prev.map((item) => (item.name === file.name ? { ...item, progress: 100 } : item)));
@@ -429,23 +707,14 @@ export default function ChatArea({ channel, currentUser, users, channels }: Chat
         e.target.value = "";
     };
 
-    const sendMessage = async (text = inputValue.trim(), attachments: any[] = []) => {
+    const sendMessage = async (
+        text = inputValue.trim(),
+        attachments: any[] = [],
+    ) => {
         if (!channel?.id) return;
         if (!text && attachments.length === 0) return;
 
-        const payload = {
-            content: text,
-            reply: replyingTo
-                ? {
-                      messageId: replyingTo.id,
-                      author: replyingTo.author,
-                      content: replyingTo.content,
-                      avatarUrl: replyingTo.avatarUrl ?? null,
-                  }
-                : null,
-            attachments,
-            embeds: [],
-        };
+        const currentReply = replyingTo;
 
         setInputValue("");
         setReplyingTo(null);
@@ -456,9 +725,115 @@ export default function ChatArea({ channel, currentUser, users, channels }: Chat
         }
 
         try {
-            await sendMessageAction(channel.id, JSON.stringify(payload));
+            if (isDirect) {
+                const directAttachments = attachments.map(
+                    (attachment: any) => ({
+                        url: attachment.url,
+                        filename:
+                            attachment.filename ||
+                            attachment.name ||
+                            "arquivo",
+                        fileSize:
+                            attachment.fileSize ??
+                            attachment.size ??
+                            0,
+                        fileType:
+                            attachment.fileType ||
+                            attachment.contentType ||
+                            "application/octet-stream",
+                    }),
+                );
+
+                const response = await fetch(
+                    `/api/direct-messages/conversations/${channel.id}/messages`,
+                    {
+                        method: "POST",
+                        headers: {
+                            "Content-Type":
+                                "application/json",
+                        },
+                        body: JSON.stringify({
+                            content: text,
+                            replyToId:
+                                currentReply?.id ?? null,
+                            attachments:
+                                directAttachments,
+                        }),
+                    },
+                );
+
+                const data = await response.json();
+
+                if (
+                    !response.ok ||
+                    !data.success ||
+                    !data.message
+                ) {
+                    throw new Error(
+                        data.message ||
+                            "Não foi possível enviar a mensagem.",
+                    );
+                }
+
+                const sentMessage =
+                    normalizeMessage(data.message);
+
+                setMessages((prev) => {
+                    if (
+                        prev.some(
+                            (message) =>
+                                message.id ===
+                                sentMessage.id,
+                        )
+                    ) {
+                        return prev;
+                    }
+
+                    return [...prev, sentMessage];
+                });
+
+                await onDirectConversationChanged?.();
+
+                requestAnimationFrame(() => {
+                    messagesEndRef.current?.scrollIntoView({
+                        behavior: "smooth",
+                    });
+                });
+
+                return;
+            }
+
+            const payload = {
+                content: text,
+                reply: currentReply
+                    ? {
+                          messageId: currentReply.id,
+                          author: currentReply.author,
+                          content: currentReply.content,
+                          avatarUrl:
+                              currentReply.avatarUrl ??
+                              null,
+                      }
+                    : null,
+                attachments,
+                embeds: [],
+            };
+
+            await sendMessageAction(
+                channel.id,
+                JSON.stringify(payload),
+            );
         } catch (error) {
-            alert("Não foi possível enviar a mensagem.");
+            console.error(
+                "[CHAT_MESSAGE_SEND]",
+                error,
+            );
+
+            alert(
+                error instanceof Error
+                    ? error.message
+                    : "Não foi possível enviar a mensagem.",
+            );
         }
     };
 
@@ -497,15 +872,74 @@ export default function ChatArea({ channel, currentUser, users, channels }: Chat
     return (
         <div className="relative flex min-w-0 flex-1 flex-col bg-transparent" onClick={() => setActiveMenuMessageId(null)}>
             <div className="flex h-12 items-center justify-between border-b border-stone-300 px-4 shadow-sm dark:border-zinc-800/50">
-                <div className="flex items-center gap-2 font-semibold text-zinc-800 dark:text-zinc-100">
-                    {isVoiceChannel ? <Volume2 className="h-5 w-5 text-zinc-500" /> : <Hash className="h-5 w-5 text-zinc-500" />}
-                    {channel.name}
-                </div>
+                <button
+                    type="button"
+                    onClick={() => {
+                        if (isDirect) {
+                            onOpenDetails?.();
+                        }
+                    }}
+                    className={`flex min-w-0 items-center gap-2 font-semibold text-zinc-800 dark:text-zinc-100 ${
+                        isDirect && onOpenDetails
+                            ? "cursor-pointer"
+                            : "cursor-default"
+                    }`}
+                >
+                    {isDirect ? (
+                        channel.avatarUrl ? (
+                            <img
+                                src={channel.avatarUrl}
+                                alt=""
+                                className="h-7 w-7 rounded-full object-cover"
+                            />
+                        ) : (
+                            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-500 text-xs font-bold text-white">
+                                {String(
+                                    channel.name || "?",
+                                )
+                                    .charAt(0)
+                                    .toUpperCase()}
+                            </div>
+                        )
+                    ) : isVoiceChannel ? (
+                        <Volume2 className="h-5 w-5 text-zinc-500" />
+                    ) : (
+                        <Hash className="h-5 w-5 text-zinc-500" />
+                    )}
+
+                    <span className="truncate">
+                        {channel.name}
+                    </span>
+                </button>
 
                 <div className="flex items-center gap-4 text-zinc-500 dark:text-zinc-400">
-                    <Bell className="h-5 w-5 cursor-pointer hover:text-zinc-800 dark:hover:text-zinc-200" />
-                    <Pin className="h-5 w-5 cursor-pointer hover:text-zinc-800 dark:hover:text-zinc-200" />
-                    <Users className="h-5 w-5 cursor-pointer hover:text-zinc-800 dark:hover:text-zinc-200" />
+                    {!isDirect && (
+                        <>
+                            <Bell className="h-5 w-5 cursor-pointer hover:text-zinc-800 dark:hover:text-zinc-200" />
+                            <Pin className="h-5 w-5 cursor-pointer hover:text-zinc-800 dark:hover:text-zinc-200" />
+                        </>
+                    )}
+
+                    <button
+                        type="button"
+                        onClick={
+                            isDirect
+                                ? onOpenDetails
+                                : undefined
+                        }
+                        className="rounded-sm hover:text-zinc-800 dark:hover:text-zinc-200"
+                        title={
+                            isDirect
+                                ? channel.directType ===
+                                  "GROUP"
+                                    ? "Configurações do grupo"
+                                    : "Ver perfil"
+                                : "Membros"
+                        }
+                    >
+                        <Users className="h-5 w-5" />
+                    </button>
+
                     <SearchCommand />
                 </div>
             </div>
@@ -662,7 +1096,13 @@ export default function ChatArea({ channel, currentUser, users, channels }: Chat
                             onKeyDown={handleKeyDown}
                             maxLength={8000}
                             rows={1}
-                            placeholder={replyingTo ? `Responder a ${replyingTo.author}...` : `Conversar em #${channel.name}`}
+                            placeholder={
+                                replyingTo
+                                    ? `Responder a ${replyingTo.author}...`
+                                    : isDirect
+                                      ? `Mensagem para ${channel.name}`
+                                      : `Conversar em #${channel.name}`
+                            }
                             className="custom-scrollbar flex-1 resize-none self-center bg-transparent text-sm leading-5 text-zinc-900 outline-none placeholder:text-zinc-500 dark:text-zinc-100 dark:placeholder:text-zinc-400"
                         />
 

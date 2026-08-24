@@ -4,11 +4,12 @@ interface AvatarProps {
   avatarUrl?: string | null;
   username?: string;
   globalName?: string | null;
-  className?: string; 
+  className?: string;
 }
 
-function resolveFileUrl(urlOrKey?: string | null) {
+export function resolveFileUrl(urlOrKey?: string | null) {
   if (!urlOrKey) return "";
+
   if (
     urlOrKey.startsWith("http://") ||
     urlOrKey.startsWith("https://") ||
@@ -17,17 +18,17 @@ function resolveFileUrl(urlOrKey?: string | null) {
   ) {
     return urlOrKey;
   }
+
   return `/api/files?key=${encodeURIComponent(urlOrKey)}`;
 }
 
-export default function Avatar({ 
-  avatarUrl, 
-  username = "User", 
-  globalName, 
-  className = "h-10 w-10" // Tamanho padrão caso não passe nada
+export default function Avatar({
+  avatarUrl,
+  username = "User",
+  globalName,
+  className = "h-10 w-10",
 }: AvatarProps) {
-
-  const displayName = globalName || username;
+  const displayName = globalName?.trim() || username.trim() || "User";
   const firstLetter = displayName.charAt(0).toUpperCase();
   const resolvedAvatarUrl = resolveFileUrl(avatarUrl);
 
@@ -39,7 +40,8 @@ export default function Avatar({
         <img
           src={resolvedAvatarUrl}
           alt={displayName}
-          className="h-full w-full object-cover"
+          draggable={false}
+          className="h-full w-full select-none object-cover"
         />
       ) : (
         <span className="select-none font-semibold uppercase">

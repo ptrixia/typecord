@@ -15,7 +15,7 @@ export async function GET(req: Request) {
 
         if (!channelId) return new NextResponse("ID do Canal ausente", { status: 400 });
 
-        let messages = [];
+        let messages: Awaited<ReturnType<typeof db.message.findMany>> = [];
 
         if (cursor) {
             messages = await db.message.findMany({
@@ -35,7 +35,7 @@ export async function GET(req: Request) {
             });
         }
 
-        let nextCursor = null;
+        let nextCursor: string | null = null;
         if (messages.length === MESSAGES_BATCH) {
             nextCursor = messages[MESSAGES_BATCH - 1].id;
         }
