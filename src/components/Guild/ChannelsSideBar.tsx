@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Hash, Plus, Volume2, ChevronDown, Settings, LogOut } from "lucide-react";
+import { Hash, Plus, Volume2, ChevronDown, Settings, LogOut, Check } from "lucide-react";
 import { useRouter } from "next/navigation";
 import UserProfileSideBar from "../UserProfileSideBar";
 import Modal from "../Modal";
 import { createChannel } from "@/actions/channels";
 import GuildSettingsModal from "./GuildSettingsModal";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 
 interface ChannelsSidebarProps {
   guild: any;
@@ -114,7 +115,24 @@ export default function ChannelsSidebar({
               <img src={resolvedBannerUrl} alt="Banner" className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
               <div className="absolute inset-0 bg-gradient-to-b from-black/80 via-black/20 to-transparent transition-opacity group-hover:bg-black/40" />
               <div className="relative z-10 flex w-full items-center justify-between p-4 pt-3 font-bold text-white text-shadow-sm">
-                <span className="truncate">{guild.name}</span>
+                
+                <div className="flex flex-row gap-2"><span className="truncate">{guild.name}  </span> 
+                
+                {/* <Tooltip>
+                        <TooltipTrigger>
+                            <Check className="rounded-2xl" color="#2FFA73"/>
+                        </TooltipTrigger>
+                
+                        <TooltipContent
+                          side="right"
+                          sideOffset={20}
+                          className="w-72 p-0 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-[#111214] text-zinc-950 dark:text-zinc-50 z-[100]"
+                        >
+                           <div className="relative p-4 pt-3">Servidor Verificado</div>
+                        </TooltipContent>
+                      </Tooltip> */}
+                      
+                      </div>
                 <ChevronDown className={`h-4 w-4 shrink-0 transition-transform duration-200 ${isDropdownOpen ? "rotate-180" : ""}`} />
               </div>
             </div>

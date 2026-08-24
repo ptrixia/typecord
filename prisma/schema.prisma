@@ -186,7 +186,10 @@ model Guild {
   name      String
   iconUrl   String? @db.Text
   bannerUrl String? @db.Text
-  vanityUrl String? @unique // URL customizada de convite
+  vanityUrl String? @unique
+  verified Boolean @default(false)
+
+
 
   ownerId String
   owner   User   @relation(fields: [ownerId], references: [id])

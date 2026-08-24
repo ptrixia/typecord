@@ -85,15 +85,6 @@ export default function GuildIcon({ guild }: GuildIconProps) {
           sideOffset={20}
           className="w-72 p-0 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-[#111214] text-zinc-950 dark:text-zinc-50 z-[100]"
         >
-          {resolvedBannerUrl && (
-            <div className="relative h-28 w-full overflow-hidden bg-zinc-800">
-              <img
-                src={resolvedBannerUrl}
-                alt="Banner"
-                className="h-full w-full object-cover"
-              />
-            </div>
-          )}
 
           <div className="relative p-4 pt-3">
             <div>
