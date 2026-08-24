@@ -5,6 +5,8 @@ import { channelSchema } from "@/lib/validations";
 
 export async function POST(req: Request) {
   try {
+
+    
     const user = await getCurrentUser();
     if (!user) return new NextResponse("Não autorizado", { status: 401 });
 
