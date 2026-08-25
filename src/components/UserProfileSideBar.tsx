@@ -1,15 +1,25 @@
+"use client";
 
 import UserProfileContent from "./UserProfileContent";
 
-type Props = {
-  user: {
-    id: string;
-    username?: string | null;
-    globalName?: string | null;
-    avatarUrl?: string | null;
-  } | null;
+export type UserProfileData = {
+  id: string;
+  email?: string | null;
+  username?: string | null;
+  globalName?: string | null;
+  avatarUrl?: string | null;
+  bannerUrl?: string | null;
+  bio?: string | null;
+  status?: "ONLINE" | "IDLE" | "DND" | "OFFLINE" | null;
+  customStatus?: string | null;
 };
 
-export default function UserProfileSideBar({ user }: Props) {
+interface UserProfileSideBarProps {
+  user: UserProfileData | null;
+}
+
+export default function UserProfileSideBar({
+  user,
+}: UserProfileSideBarProps) {
   return <UserProfileContent user={user} />;
 }

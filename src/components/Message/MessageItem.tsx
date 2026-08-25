@@ -1,6 +1,7 @@
 "use client";
 
 import {
+    Check,
     Copy,
     MoreVertical,
     Reply,
@@ -17,37 +18,30 @@ import Avatar from "../Image/Avatar";
 import ClientTime from "../ClientTime";
 
 export interface MessageData {
-    id: string;
+  id: string;
 
-    author: string;
-    authorId?: string;
+  author: string;
+  authorId?: string;
 
-    authorColor?: string;
-    avatarColor?: string;
-    avatarUrl?: string | null;
+  authorColor?: string;
+  avatarColor?: string;
+  avatarUrl?: string | null;
 
-    createdAt?: string;
-    time?: string;
+  createdAt?: string;
+  time?: string;
 
-    content: string;
+  content: string;
 
-    reply?: MessageReplyData | null;
+  reply?: MessageReplyData | null;
 
-    attachments?: MessageAttachmentData[];
-    embeds?: MessageEmbedData[];
+  attachments?: MessageAttachmentData[];
+  embeds?: MessageEmbedData[];
 
-    isPending?: boolean;
+  isPending?: boolean;
 
-    /*
-     * Indica que a mensagem foi enviada
-     * por um bot.
-     */
-    isBot?: boolean;
-
-    /*
-     * Indica que a mensagem veio de um webhook.
-     */
-    isWebhook?: boolean;
+  isBot?: boolean;
+  isBotVerified?: boolean;
+  isWebhook?: boolean;
 }
 
 interface MessageItemProps {
@@ -74,6 +68,8 @@ export default function MessageItem({
     onCopy,
     onReact,
 }: MessageItemProps) {
+
+    console.log(message)
 
     return (
         <div
@@ -183,10 +179,17 @@ export default function MessageItem({
 
                     {/* BOT */}
                     {message.isBot && (
-                        <span className="rounded bg-indigo-500 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-                            BOT
-                        </span>
-                    )}
+  <span className="inline-flex items-center gap-1 rounded-[3px] bg-indigo-500 px-1.5 py-0.5 text-[10px] font-bold uppercase leading-none tracking-wide text-white">
+    BOT
+
+    {message.isBotVerified && (
+      <Check
+        strokeWidth={3}
+        className="h-3 w-3 shrink-0 text-white"
+      />
+    )}
+  </span>
+)}
 
                     {/* WEBHOOK */}
                     {!message.isBot &&

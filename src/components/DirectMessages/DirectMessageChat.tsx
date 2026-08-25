@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from "react";
 
+console.log("DIRECT_MESSAGE_CHAT_NOVO_CARREGADO");
+
 import ChatArea from "@/components/Guild/ChatArea";
 import type {
   DirectConversationSummary,

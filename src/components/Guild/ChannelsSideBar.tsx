@@ -221,7 +221,23 @@ export default function ChannelsSidebar({
           </div>
         </div>
 
-        <UserProfileSideBar user={currentMember?.user ?? null} />
+        <UserProfileSideBar
+  user={
+    currentMember?.user
+      ? {
+          id: currentMember.user.id,
+          email: currentMember.user.email ?? null,
+          username: currentMember.user.username ?? null,
+          globalName: currentMember.user.globalName ?? null,
+          avatarUrl: currentMember.user.avatarUrl ?? null,
+          bannerUrl: currentMember.user.bannerUrl ?? null,
+          bio: currentMember.user.bio ?? null,
+          status: currentMember.user.status ?? "OFFLINE",
+          customStatus: currentMember.user.customStatus ?? null,
+        }
+      : null
+  }
+/>
       </div>
 
       <Modal isOpen={isCreateChannelModalOpen} onClose={() => setIsCreateChannelModalOpen(false)} title="Criar Canal">

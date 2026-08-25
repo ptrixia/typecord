@@ -45,6 +45,8 @@ model Bot {
   ownerId String
   owner   User   @relation("BotOwner", fields: [ownerId], references: [id], onDelete: Cascade)
 
+  verified  Boolean @default(false)
+
   tokenHash String @unique
 
   disabled Boolean @default(false)
@@ -96,6 +98,7 @@ model User {
   bannerUrl    String?    @db.Text
   bio          String?    @db.Text
   status       UserStatus @default(OFFLINE)
+  customStatus String?    @db.VarChar(128)
 
   bot       Bot?  @relation("BotAccount")
   botsOwned Bot[] @relation("BotOwner")

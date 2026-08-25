@@ -2,16 +2,22 @@ import type { Metadata } from "next";
 import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+const APP_URL =
+  process.env.NEXT_PUBLIC_APP_URL ||
+  "http://localhost:3000";
 
 export const metadata: Metadata = {
   metadataBase: new URL(APP_URL),
+
   title: {
-    default: "Typecord — Conecte-se com sua comunidade",
+    default:
+      "Typecord — Conecte-se com sua comunidade",
     template: "%s | Typecord",
   },
+
   description:
     "Typecord é uma plataforma moderna de chat por texto e voz, servidores e comunidades inspirada no Discord e desenvolvida com TypeScript e Next.js.",
+
   keywords: [
     "typecord",
     "discord clone",
@@ -22,21 +28,35 @@ export const metadata: Metadata = {
     "nextjs",
     "livekit",
   ],
-  authors: [{ name: "ptrixia", url: "https://github.com/ptrixia" }],
+
+  authors: [
+    {
+      name: "ptrixia",
+      url: "https://github.com/ptrixia",
+    },
+  ],
+
   creator: "ptrixia",
   publisher: "Typecord",
+
   robots: {
     index: true,
     follow: true,
   },
+
   openGraph: {
     type: "website",
     locale: "pt_BR",
     url: APP_URL,
-    title: "Typecord — Conecte-se com sua comunidade",
+
+    title:
+      "Typecord — Conecte-se com sua comunidade",
+
     description:
       "Plataforma de conversas em tempo real, servidores customizados e canais de voz.",
+
     siteName: "Typecord",
+
     images: [
       {
         url: "https://app.tysaiw.com/og-image.png",
@@ -46,17 +66,30 @@ export const metadata: Metadata = {
       },
     ],
   },
+
   twitter: {
     card: "summary_large_image",
-    title: "Typecord — Conecte-se com sua comunidade",
+
+    title:
+      "Typecord — Conecte-se com sua comunidade",
+
     description:
       "Plataforma de conversas em tempo real, servidores customizados e canais de voz.",
-    images: ["https://app.tysaiw.com/og-image.png"],
+
+    images: [
+      "https://app.tysaiw.com/og-image.png",
+    ],
   },
+
   icons: {
-    icon: "https://app.tysaiw.com/favicon.ico",
-    shortcut: "https://app.tysaiw.com/favicon-16x16.png",
-    apple: "https://app.tysaiw.com/apple-touch-icon.png",
+    icon:
+      "https://app.tysaiw.com/favicon.ico",
+
+    shortcut:
+      "https://app.tysaiw.com/favicon-16x16.png",
+
+    apple:
+      "https://app.tysaiw.com/apple-touch-icon.png",
   },
 };
 
@@ -66,7 +99,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="pt-BR" suppressHydrationWarning>
+    <html
+      lang="pt-BR"
+      suppressHydrationWarning
+    >
       <body>
         <ThemeProvider
           attribute="class"

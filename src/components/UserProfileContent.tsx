@@ -4,24 +4,22 @@ import {
   Check,
   ChevronRight,
   Copy,
-  Headphones,
-  LogOut,
-  Mic,
-  Pencil,
-  Settings,
-  UserRound,
   ImagePlus,
   Loader2,
+  LogOut,
+  Pencil,
+  Settings,
+  Trash2,
+  UserRound,
+  X,
 } from "lucide-react";
-
-import { useEffect, useRef, useState } from "react";
-import Modal from "@/components/Modal";
-import { updateUserProfile } from "@/actions/user";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+
+import { updateUserProfile, type ProfileStatus } from "@/actions/user";
+import Modal from "@/components/Modal";
 import Avatar from "./Image/Avatar";
 import Banner from "./Image/Banner";
-
-type UserStatus = "ONLINE" | "IDLE" | "DND" | "INVISIBLE" | "OFFLINE";
 
 type ProfileUser = {
   id: string;
@@ -31,7 +29,7 @@ type ProfileUser = {
   avatarUrl?: string | null;
   bannerUrl?: string | null;
   bio?: string | null;
-  status?: UserStatus | null;
+  status?: ProfileStatus | null;
   customStatus?: string | null;
 };
 
@@ -39,16 +37,40 @@ interface UserProfileContentProps {
   user: ProfileUser | null;
 }
 
-const statusOptions: {
-  id: UserStatus;
+type SettingsTab = "profile" | "presence";
+
+type StatusOption = {
+  id: ProfileStatus;
   label: string;
   description: string;
   color: string;
-}[] = [
-  { id: "ONLINE", label: "Online", description: "Disponível", color: "bg-emerald-500" },
-  { id: "IDLE", label: "Ausente", description: "Ausente", color: "bg-yellow-500" },
-  { id: "DND", label: "Ocupado", description: "Não perturbe", color: "bg-red-500" },
-  { id: "INVISIBLE", label: "Invisível", description: "Invisível", color: "bg-zinc-500" },
+};
+
+const statusOptions: StatusOption[] = [
+  {
+    id: "ONLINE",
+    label: "Online",
+    description: "Você aparece como disponível.",
+    color: "bg-emerald-500",
+  },
+  {
+    id: "IDLE",
+    label: "Ausente",
+    description: "Mostra que você pode estar longe do teclado.",
+    color: "bg-amber-400",
+  },
+  {
+    id: "DND",
+    label: "Não perturbe",
+    description: "Indica que você não quer ser interrompido.",
+    color: "bg-rose-500",
+  },
+  {
+    id: "OFFLINE",
+    label: "Invisível",
+    description: "Você aparece offline para outras pessoas.",
+    color: "bg-zinc-500",
+  },
 ];
 
 function MenuItem({
@@ -68,15 +90,15 @@ function MenuItem({
     <button
       type="button"
       onClick={onClick}
-      className={[
-        "flex w-full items-center gap-3 rounded-md px-2.5 py-2",
-        "text-sm transition-colors font-medium",
+      className={`flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-sm font-medium transition-colors ${
         danger
-          ? "text-red-500 hover:bg-red-500/10"
-          : "text-stone-700 hover:bg-stone-200 dark:text-zinc-200 dark:hover:bg-zinc-800",
-      ].join(" ")}
+          ? "text-rose-500 hover:bg-rose-500/10"
+          : "text-stone-700 hover:bg-stone-200 dark:text-zinc-200 dark:hover:bg-zinc-800"
+      }`}
     >
-      <span className="flex h-4 w-4 shrink-0 items-center justify-center">{icon}</span>
+      <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+        {icon}
+      </span>
       <span className="min-w-0 flex-1 truncate text-left">{children}</span>
       {arrow && <ChevronRight className="h-4 w-4 shrink-0 text-zinc-500" />}
     </button>
@@ -87,104 +109,180 @@ function Divider() {
   return <div className="my-1 border-t border-stone-200 dark:border-zinc-800" />;
 }
 
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wider text-stone-500 dark:text-zinc-400">
+      {children}
+    </label>
+  );
+}
+
 export default function UserProfileContent({ user }: UserProfileContentProps) {
   const router = useRouter();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [submenu, setSubmenu] = useState<"status" | null>(null);
-
-  const [profileModalOpen, setProfileModalOpen] = useState(false);
-  const [editProfileModalOpen, setEditProfileModalOpen] = useState(false);
-
-  const [isMuted, setIsMuted] = useState(false);
-  const [isDeafened, setIsDeafened] = useState(false);
-
-  const [status, setStatus] = useState<UserStatus>(() => (user?.status as UserStatus) || "ONLINE");
-  const [customStatus, setCustomStatus] = useState<string>(() => user?.customStatus || "");
-  const [editingStatus, setEditingStatus] = useState(false);
-  const [isMounted, setIsMounted] = useState(false);
-
-  useEffect(() => { setIsMounted(true); }, []);
-
   const menuRef = useRef<HTMLDivElement>(null);
-  const editAvatarRef = useRef<HTMLInputElement>(null);
-  const editBannerRef = useRef<HTMLInputElement>(null);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const bannerInputRef = useRef<HTMLInputElement>(null);
 
+  const [localUser, setLocalUser] = useState<ProfileUser | null>(user);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [statusMenuOpen, setStatusMenuOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("profile");
+
+  const [editUsername, setEditUsername] = useState("");
   const [editGlobalName, setEditGlobalName] = useState("");
-  const [editAvatarUrl, setEditAvatarUrl] = useState("");
-  const [editBannerUrl, setEditBannerUrl] = useState("");
+  const [editAvatarUrl, setEditAvatarUrl] = useState<string | null>(null);
+  const [editBannerUrl, setEditBannerUrl] = useState<string | null>(null);
   const [editBio, setEditBio] = useState("");
-  
-  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
-  const [isUploadingBanner, setIsUploadingBanner] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
+  const [editStatus, setEditStatus] = useState<ProfileStatus>("OFFLINE");
+  const [editCustomStatus, setEditCustomStatus] = useState("");
 
-  const username = user?.username || "usuario";
-  const displayName = user?.globalName || username;
-  const userId = user?.id || "";
-
-  const currentStatus = statusOptions.find((item) => item.id === status) ?? statusOptions[0];
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [uploadingBanner, setUploadingBanner] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [quickStatusSaving, setQuickStatusSaving] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    if (!user) return;
-    setEditGlobalName(user.globalName || "");
-    setEditAvatarUrl(user.avatarUrl || "");
-    setEditBannerUrl(user.bannerUrl || "");
-    setEditBio(user.bio || "");
-    setStatus(user.status || "ONLINE");
-    setCustomStatus(user.customStatus || "");
+    setLocalUser(user);
   }, [user]);
+
+  useEffect(() => {
+    if (!localUser) return;
+
+    setEditUsername(localUser.username || "");
+    setEditGlobalName(localUser.globalName || "");
+    setEditAvatarUrl(localUser.avatarUrl || null);
+    setEditBannerUrl(localUser.bannerUrl || null);
+    setEditBio(localUser.bio || "");
+    setEditStatus(localUser.status || "OFFLINE");
+    setEditCustomStatus(localUser.customStatus || "");
+  }, [localUser, settingsOpen]);
 
   useEffect(() => {
     function handlePointerDown(event: PointerEvent) {
       const target = event.target;
-      if (target instanceof Node && menuRef.current && !menuRef.current.contains(target)) {
+
+      if (
+        target instanceof Node &&
+        menuRef.current &&
+        !menuRef.current.contains(target)
+      ) {
         setMenuOpen(false);
-        setSubmenu(null);
-        setEditingStatus(false);
+        setStatusMenuOpen(false);
       }
     }
+
     document.addEventListener("pointerdown", handlePointerDown);
-    return () => { document.removeEventListener("pointerdown", handlePointerDown); };
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, []);
 
-  function getInitials(name: string) {
-    const clean = name.trim();
-    if (!clean) return "U";
-    const parts = clean.split(/\s+/);
-    if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
-    return parts[0][0].toUpperCase();
-  }
+  const username = localUser?.username || "usuario";
+  const displayName = localUser?.globalName?.trim() || username;
+  const currentStatus = localUser?.status || "OFFLINE";
+  const currentStatusOption =
+    statusOptions.find((item) => item.id === currentStatus) ?? statusOptions[3];
 
-  async function copyUserId() {
-    if (!userId) return;
-    try {
-      await navigator.clipboard.writeText(userId);
-    } catch {
-      console.error("Erro ao copiar ID");
-    }
+  const previewName = editGlobalName.trim() || editUsername.trim() || displayName;
+
+  const hasUnsavedChanges = useMemo(() => {
+    if (!localUser) return false;
+
+    return (
+      editUsername.trim().toLowerCase() !== (localUser.username || "").toLowerCase() ||
+      editGlobalName.trim() !== (localUser.globalName || "") ||
+      (editAvatarUrl || null) !== (localUser.avatarUrl || null) ||
+      (editBannerUrl || null) !== (localUser.bannerUrl || null) ||
+      editBio.trim() !== (localUser.bio || "") ||
+      editStatus !== (localUser.status || "OFFLINE") ||
+      editCustomStatus.trim() !== (localUser.customStatus || "")
+    );
+  }, [
+    editAvatarUrl,
+    editBannerUrl,
+    editBio,
+    editCustomStatus,
+    editGlobalName,
+    editStatus,
+    editUsername,
+    localUser,
+  ]);
+
+  if (!localUser) {
+    return (
+      <div className="flex h-[58px] shrink-0 items-center border-t border-stone-300 bg-stone-300/80 px-3 text-xs text-stone-500 dark:border-zinc-950 dark:bg-[#1e1f22] dark:text-zinc-500">
+        Usuário não carregado
+      </div>
+    );
   }
 
   function closeMenu() {
     setMenuOpen(false);
-    setSubmenu(null);
-    setEditingStatus(false);
+    setStatusMenuOpen(false);
+  }
+
+  function openSettings(tab: SettingsTab = "profile") {
+    closeMenu();
+    setSettingsTab(tab);
+    setFeedback("");
+    setSettingsOpen(true);
+  }
+
+  function resetDraft() {
+    setEditUsername(localUser.username || "");
+    setEditGlobalName(localUser.globalName || "");
+    setEditAvatarUrl(localUser.avatarUrl || null);
+    setEditBannerUrl(localUser.bannerUrl || null);
+    setEditBio(localUser.bio || "");
+    setEditStatus(localUser.status || "OFFLINE");
+    setEditCustomStatus(localUser.customStatus || "");
+    setFeedback("");
+  }
+
+  async function copyUserId() {
+    try {
+      await navigator.clipboard.writeText(localUser.id);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      setCopied(false);
+    }
   }
 
   function logout() {
     window.location.href = "/api/auth/signout";
   }
 
-  async function handleUploadFile(event: React.ChangeEvent<HTMLInputElement>, type: "avatar" | "banner") {
+  async function uploadImage(
+    event: React.ChangeEvent<HTMLInputElement>,
+    type: "avatar" | "banner",
+  ) {
     const file = event.target.files?.[0];
+    event.target.value = "";
+
     if (!file) return;
 
     if (!file.type.startsWith("image/")) {
-      alert("Selecione uma imagem válida.");
+      setFeedback("Selecione uma imagem válida.");
       return;
     }
 
-    if (type === "avatar") setIsUploadingAvatar(true);
-    else setIsUploadingBanner(true);
+    const maxSize = type === "avatar" ? 8 * 1024 * 1024 : 15 * 1024 * 1024;
+
+    if (file.size > maxSize) {
+      setFeedback(
+        type === "avatar"
+          ? "O avatar deve ter no máximo 8 MB."
+          : "O banner deve ter no máximo 15 MB.",
+      );
+      return;
+    }
+
+    if (type === "avatar") setUploadingAvatar(true);
+    else setUploadingBanner(true);
+
+    setFeedback("");
 
     try {
       const formData = new FormData();
@@ -195,94 +293,117 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
         body: formData,
       });
 
-      const data = await response.json();
-      if (!response.ok || !data.success || !data.key) {
-        throw new Error(data.message ?? "Falha no upload.");
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.message || data?.error || "Falha no upload.");
       }
 
-      if (type === "avatar") {
-        setEditAvatarUrl(data.key);
-      } else {
-        setEditBannerUrl(data.key);
+      const reference = data.key || data.url;
+
+      if (!reference || typeof reference !== "string") {
+        throw new Error("O servidor não retornou a referência do arquivo.");
       }
-    } catch (error: any) {
-      alert(error.message ?? "Erro ao enviar imagem.");
+
+      if (type === "avatar") setEditAvatarUrl(reference);
+      else setEditBannerUrl(reference);
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : "Erro ao enviar imagem.");
     } finally {
-      if (type === "avatar") setIsUploadingAvatar(false);
-      else setIsUploadingBanner(false);
+      if (type === "avatar") setUploadingAvatar(false);
+      else setUploadingBanner(false);
     }
   }
 
-  async function handleStatusChange(newStatus: UserStatus) {
-    setStatus(newStatus);
-    setSubmenu(null);
+  async function changeQuickStatus(status: ProfileStatus) {
+    if (quickStatusSaving || status === currentStatus) {
+      setStatusMenuOpen(false);
+      return;
+    }
+
+    setQuickStatusSaving(true);
+
     try {
-      await updateUserProfile({
-        status: newStatus,
-      } as Parameters<typeof updateUserProfile>[0]);
+      const updated = await updateUserProfile({ status });
+      setLocalUser((current) => (current ? { ...current, ...updated } : current));
+      setStatusMenuOpen(false);
       router.refresh();
     } catch (error) {
       console.error(error);
+    } finally {
+      setQuickStatusSaving(false);
     }
   }
 
-  async function handleCustomStatusChange(newCustomStatus: string) {
-    setCustomStatus(newCustomStatus);
-    setEditingStatus(false);
-    try {
-      await updateUserProfile({
-        customStatus: newCustomStatus,
-      } as Parameters<typeof updateUserProfile>[0]);
-      router.refresh();
-    } catch (error) {
-      console.error(error);
-    }
-  }
+  async function saveProfile() {
+    if (saving || uploadingAvatar || uploadingBanner || !hasUnsavedChanges) return;
 
-  async function handleSaveProfile() {
-    setIsSaving(true);
+    setSaving(true);
+    setFeedback("");
+
     try {
-      await updateUserProfile({
-        globalName: editGlobalName,
+      const updated = await updateUserProfile({
+        username: editUsername,
+        globalName: editGlobalName || null,
         avatarUrl: editAvatarUrl,
         bannerUrl: editBannerUrl,
-        bio: editBio,
+        bio: editBio || null,
+        status: editStatus,
+        customStatus: editCustomStatus || null,
       });
-      
-      setEditProfileModalOpen(false);
+
+      setLocalUser(updated);
+      setSettingsOpen(false);
       router.refresh();
-      window.location.reload();
     } catch (error) {
-      console.error(error);
-      alert("Não foi possível salvar o perfil.");
+      setFeedback(
+        error instanceof Error ? error.message : "Não foi possível salvar o perfil.",
+      );
     } finally {
-      setIsSaving(false);
+      setSaving(false);
     }
   }
 
   return (
     <>
-      <input ref={editAvatarRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => handleUploadFile(e, "avatar")} />
-      <input ref={editBannerRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => handleUploadFile(e, "banner")} />
+      <input
+        ref={avatarInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        hidden
+        onChange={(event) => uploadImage(event, "avatar")}
+      />
+
+      <input
+        ref={bannerInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        hidden
+        onChange={(event) => uploadImage(event, "banner")}
+      />
 
       <div
         ref={menuRef}
-        className="relative flex h-[58px] shrink-0 items-center border-t border-stone-300 bg-stone-300/80 px-2 dark:border-zinc-950 dark:bg-[#1e1f22]"
+        className="relative flex h-[58px] shrink-0 items-center gap-1 border-t border-stone-300 bg-stone-300/80 px-2 dark:border-zinc-950 dark:bg-[#1e1f22]"
       >
         <button
           type="button"
-          onClick={() => { setMenuOpen((c) => !c); setSubmenu(null); setEditingStatus(false); }}
+          onClick={() => {
+            setMenuOpen((current) => !current);
+            setStatusMenuOpen(false);
+          }}
           className="flex min-w-0 flex-1 items-center rounded-md px-1 py-1 text-left transition-colors hover:bg-stone-400/40 dark:hover:bg-zinc-800/80"
         >
           <div className="relative shrink-0">
-            <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-indigo-500 text-xs font-bold text-white shadow-sm">
-              {user?.avatarUrl ? (
-                <Avatar avatarUrl={user?.avatarUrl} className="h-full w-full object-cover" />
-              ) : (
-                getInitials(displayName)
-              )}
-            </div>
-            <span className={["absolute bottom-[-1px] right-[-1px] h-3 w-3 rounded-full border-[3px] border-stone-300 dark:border-[#1e1f22]", currentStatus.color].join(" ")} />
+            <Avatar
+              avatarUrl={localUser.avatarUrl}
+              username={username}
+              globalName={localUser.globalName}
+              className="h-8 w-8"
+            />
+            <span
+              className={`absolute bottom-[-1px] right-[-1px] h-3 w-3 rounded-full border-[3px] border-stone-300 dark:border-[#1e1f22] ${currentStatusOption.color}`}
+            />
           </div>
 
           <div className="ml-2 min-w-0 flex-1">
@@ -290,129 +411,108 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
               {displayName}
             </div>
             <div className="truncate text-[11px] leading-tight text-stone-500 dark:text-zinc-400">
-            {isMounted ? (customStatus || "Disponível") : (user?.customStatus || "Disponível")}
+              {localUser.customStatus || currentStatusOption.label}
             </div>
           </div>
         </button>
 
-        <div className="ml-1 flex items-center">
-          <button
-            type="button"
-            title={isMuted ? "Ativar microfone" : "Silenciar"}
-            onClick={() => setIsMuted((val) => !val)}
-            className={["flex h-8 w-8 items-center justify-center rounded-md transition-colors", isMuted ? "text-red-400 hover:bg-red-500/10" : "text-stone-600 hover:bg-stone-400/40 hover:text-stone-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white"].join(" ")}
-          >
-            <Mic className="h-[18px] w-[18px]" />
-          </button>
-
-          <button
-            type="button"
-            title={isDeafened ? "Ativar áudio" : "Desativar áudio"}
-            onClick={() => setIsDeafened((val) => !val)}
-            className={["flex h-8 w-8 items-center justify-center rounded-md transition-colors", isDeafened ? "text-red-400 hover:bg-red-500/10" : "text-stone-600 hover:bg-stone-400/40 hover:text-stone-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white"].join(" ")}
-          >
-            <Headphones className="h-[18px] w-[18px]" />
-          </button>
-
-          <button
-            type="button"
-            title="Configurações"
-            onClick={() => { closeMenu(); setEditProfileModalOpen(true); }}
-            className="flex h-8 w-8 items-center justify-center rounded-md text-stone-600 transition-colors hover:bg-stone-400/40 hover:text-stone-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white"
-          >
-            <Settings className="h-[18px] w-[18px]" />
-          </button>
-        </div>
+        <button
+          type="button"
+          title="Configurações do perfil"
+          onClick={() => openSettings("profile")}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-stone-600 transition-colors hover:bg-stone-400/40 hover:text-stone-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white"
+        >
+          <Settings className="h-[18px] w-[18px]" />
+        </button>
 
         {menuOpen && (
-          <div className="absolute bottom-[66px] left-1 z-[100] w-[calc(100%-8px)] rounded-lg border border-stone-300 bg-white p-1.5 shadow-2xl dark:border-zinc-800 dark:bg-[#111214]">
-            <div className="mb-1 rounded-md bg-stone-100 p-3 dark:bg-[#18191c]">
-              <div className="flex items-center gap-3">
-                <div className="relative shrink-0">
-                  <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-indigo-500 text-sm font-bold text-white shadow">
-                    {user?.avatarUrl ? (
-                      <Avatar avatarUrl={user?.avatarUrl} className="h-full w-full object-cover" />
-                    ) : (
-                      getInitials(displayName)
-                    )}
-                  </div>
-                  <span className={["absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-[3px] border-stone-100 dark:border-[#18191c]", currentStatus.color].join(" ")} />
-                </div>
-
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-bold text-stone-900 dark:text-white">
-                    {displayName}
-                  </div>
-                  <div className="truncate text-xs text-stone-500 dark:text-zinc-400">
-                    @{username}
-                  </div>
-                </div>
+          <div className="absolute bottom-[66px] left-1 z-[100] w-[calc(100%-8px)] rounded-xl border border-stone-300 bg-white p-1.5 shadow-2xl dark:border-zinc-800 dark:bg-[#111214]">
+            <button
+              type="button"
+              onClick={() => openSettings("profile")}
+              className="mb-1 w-full overflow-hidden rounded-lg bg-stone-100 text-left transition hover:bg-stone-200 dark:bg-[#18191c] dark:hover:bg-zinc-800"
+            >
+              <div className="relative h-16 overflow-hidden bg-indigo-600">
+                {localUser.bannerUrl ? (
+                  <Banner bannerUrl={localUser.bannerUrl} />
+                ) : (
+                  <div className="h-full w-full bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600" />
+                )}
               </div>
 
-              {editingStatus ? (
-                <input
-                  type="text"
-                  value={customStatus}
-                  maxLength={128}
-                  autoFocus
-                  onChange={(e) => setCustomStatus(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      handleCustomStatusChange(customStatus);
-                    } else if (e.key === "Escape") {
-                      setCustomStatus(user?.customStatus || "");
-                      setEditingStatus(false);
-                    }
-                  }}
-                  onBlur={() => handleCustomStatusChange(customStatus)}
-                  placeholder="O que você está fazendo?"
-                  className="mt-3 w-full rounded-md border border-stone-300 bg-white px-2.5 py-1.5 text-xs text-stone-900 outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-[#232428] dark:text-white"
-                />
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setEditingStatus(true)}
-                  className="mt-3 flex w-full items-center gap-2 rounded-md border border-stone-300 bg-white px-2.5 py-2 text-left transition-colors hover:border-stone-400 dark:border-zinc-700 dark:bg-[#232428] dark:hover:border-zinc-600"
-                >
-                  <span className="text-sm">💭</span>
-                  <span className="truncate text-xs italic text-stone-500 dark:text-zinc-400">
-                    {customStatus || "Definir status personalizado"}
-                  </span>
-                  <Pencil className="ml-auto h-3.5 w-3.5 text-zinc-500" />
-                </button>
-              )}
-            </div>
+              <div className="relative px-3 pb-3">
+                <div className="-mt-5 flex items-end gap-2">
+                  <div className="relative rounded-full border-[4px] border-stone-100 dark:border-[#18191c]">
+                    <Avatar
+                      avatarUrl={localUser.avatarUrl}
+                      username={username}
+                      globalName={localUser.globalName}
+                      className="h-11 w-11"
+                    />
+                    <span
+                      className={`absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-[3px] border-stone-100 dark:border-[#18191c] ${currentStatusOption.color}`}
+                    />
+                  </div>
+
+                  <div className="min-w-0 pb-0.5">
+                    <div className="truncate text-sm font-bold text-stone-900 dark:text-white">
+                      {displayName}
+                    </div>
+                    <div className="truncate text-xs text-stone-500 dark:text-zinc-400">
+                      @{username}
+                    </div>
+                  </div>
+                </div>
+
+                {localUser.customStatus && (
+                  <div className="mt-2 truncate text-xs text-stone-600 dark:text-zinc-400">
+                    {localUser.customStatus}
+                  </div>
+                )}
+              </div>
+            </button>
 
             <div className="space-y-0.5">
-              <MenuItem icon={<UserRound className="h-4 w-4" />} onClick={() => { closeMenu(); setProfileModalOpen(true); }}>
-                Perfil
-              </MenuItem>
-              <MenuItem icon={<Pencil className="h-4 w-4" />} onClick={() => { closeMenu(); setEditProfileModalOpen(true); }}>
-                Editar perfil
+              <MenuItem
+                icon={<UserRound className="h-4 w-4" />}
+                onClick={() => openSettings("profile")}
+              >
+                Meu perfil
               </MenuItem>
 
               <div className="relative">
-                <MenuItem icon={<span className={["h-3 w-3 rounded-full", currentStatus.color].join(" ")} />} arrow onClick={() => setSubmenu((c) => c === "status" ? null : "status")}>
-                  Status
+                <MenuItem
+                  icon={
+                    <span className={`h-3 w-3 rounded-full ${currentStatusOption.color}`} />
+                  }
+                  arrow
+                  onClick={() => setStatusMenuOpen((current) => !current)}
+                >
+                  Definir status
                 </MenuItem>
 
-                {submenu === "status" && (
-                  <div className="absolute bottom-0 left-full ml-2 w-[220px] rounded-lg border border-stone-300 bg-white p-1.5 shadow-2xl dark:border-zinc-800 dark:bg-[#111214]">
-                    <div className="px-2.5 py-2">
-                      <div className="text-xs font-bold text-stone-800 dark:text-white">Status</div>
-                    </div>
-                    {statusOptions.map((opt) => (
+                {statusMenuOpen && (
+                  <div className="absolute bottom-0 left-full ml-2 w-[235px] rounded-xl border border-stone-300 bg-white p-1.5 shadow-2xl dark:border-zinc-800 dark:bg-[#111214]">
+                    {statusOptions.map((option) => (
                       <button
-                        key={opt.id}
+                        key={option.id}
                         type="button"
-                        onClick={() => handleStatusChange(opt.id)}
-                        className="flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-stone-200 dark:hover:bg-zinc-800"
+                        disabled={quickStatusSaving}
+                        onClick={() => changeQuickStatus(option.id)}
+                        className="flex w-full items-start gap-3 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-stone-200 disabled:opacity-50 dark:hover:bg-zinc-800"
                       >
-                        <span className={["h-3 w-3 shrink-0 rounded-full", opt.color].join(" ")} />
+                        <span className={`mt-1 h-3 w-3 shrink-0 rounded-full ${option.color}`} />
                         <div className="min-w-0 flex-1">
-                          <div className="text-sm text-stone-800 dark:text-zinc-100">{opt.label}</div>
+                          <div className="text-sm font-medium text-stone-800 dark:text-zinc-100">
+                            {option.label}
+                          </div>
+                          <div className="mt-0.5 text-[11px] leading-snug text-stone-500 dark:text-zinc-500">
+                            {option.description}
+                          </div>
                         </div>
-                        {status === opt.id && <Check className="h-4 w-4 text-emerald-500" />}
+                        {currentStatus === option.id && (
+                          <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+                        )}
                       </button>
                     ))}
                   </div>
@@ -420,181 +520,344 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
               </div>
 
               <Divider />
-              <MenuItem icon={<Copy className="h-4 w-4" />} onClick={copyUserId}>Copiar ID do usuário</MenuItem>
-              <MenuItem icon={<Settings className="h-4 w-4" />} onClick={() => { closeMenu(); setEditProfileModalOpen(true); }}>
-                Configurações
+
+              <MenuItem
+                icon={copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                onClick={copyUserId}
+              >
+                {copied ? "ID copiado" : "Copiar ID do usuário"}
               </MenuItem>
+
               <Divider />
-              <MenuItem icon={<LogOut className="h-4 w-4" />} danger onClick={logout}>Sair</MenuItem>
+
+              <MenuItem icon={<LogOut className="h-4 w-4" />} danger onClick={logout}>
+                Sair
+              </MenuItem>
             </div>
           </div>
         )}
       </div>
 
-      <Modal isOpen={profileModalOpen} onClose={() => setProfileModalOpen(false)} title="Perfil">
-        <div className="overflow-hidden rounded-xl bg-white shadow-2xl dark:bg-[#111214] border border-stone-200 dark:border-zinc-800">
-          <div className="relative h-36 w-full bg-indigo-600 overflow-hidden">
-            {user?.bannerUrl ? (
-              <Banner bannerUrl={user?.bannerUrl} />
-            ) : (
-              <div className="h-full w-full bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500" />
-            )}
+      <Modal
+        isOpen={settingsOpen}
+        onClose={() => {
+          if (saving || uploadingAvatar || uploadingBanner) return;
+          resetDraft();
+          setSettingsOpen(false);
+        }}
+        title="Configurações do perfil"
+      >
+        <div className="space-y-4">
+          <div className="flex rounded-lg bg-stone-100 p-1 dark:bg-zinc-900">
+            <button
+              type="button"
+              onClick={() => setSettingsTab("profile")}
+              className={`flex-1 rounded-md px-3 py-2 text-xs font-semibold transition ${
+                settingsTab === "profile"
+                  ? "bg-white text-stone-900 shadow-sm dark:bg-zinc-800 dark:text-white"
+                  : "text-stone-500 hover:text-stone-900 dark:text-zinc-400 dark:hover:text-white"
+              }`}
+            >
+              Perfil
+            </button>
+            <button
+              type="button"
+              onClick={() => setSettingsTab("presence")}
+              className={`flex-1 rounded-md px-3 py-2 text-xs font-semibold transition ${
+                settingsTab === "presence"
+                  ? "bg-white text-stone-900 shadow-sm dark:bg-zinc-800 dark:text-white"
+                  : "text-stone-500 hover:text-stone-900 dark:text-zinc-400 dark:hover:text-white"
+              }`}
+            >
+              Presença
+            </button>
           </div>
 
-          <div className="relative px-6 pb-6 pt-4">
-            <div className="-mt-14 mb-4 flex items-end justify-between">
-              <div className="relative inline-block h-24 w-24">
-                <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-full border-[6px] border-white bg-indigo-500 text-2xl font-bold text-white dark:border-[#111214] shadow-lg">
-                  {user?.avatarUrl ? (
-                    <Avatar avatarUrl={user.avatarUrl} className="h-full w-full object-cover" />
+          {settingsTab === "profile" ? (
+            <div className="space-y-5">
+              <div className="overflow-hidden rounded-xl border border-stone-200 bg-white dark:border-zinc-800 dark:bg-[#111214]">
+                <div className="relative h-32 overflow-hidden bg-indigo-600">
+                  {editBannerUrl ? (
+                    <Banner bannerUrl={editBannerUrl} alt={`Banner de ${previewName}`} />
                   ) : (
-                    getInitials(displayName)
+                    <div className="h-full w-full bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600" />
+                  )}
+
+                  <div className="absolute right-2 top-2 flex gap-1.5">
+                    <button
+                      type="button"
+                      disabled={uploadingBanner}
+                      onClick={() => bannerInputRef.current?.click()}
+                      className="flex items-center gap-1.5 rounded-md bg-black/60 px-2.5 py-1.5 text-[11px] font-semibold text-white backdrop-blur transition hover:bg-black/80 disabled:opacity-50"
+                    >
+                      {uploadingBanner ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <ImagePlus className="h-3.5 w-3.5" />
+                      )}
+                      Alterar
+                    </button>
+
+                    {editBannerUrl && (
+                      <button
+                        type="button"
+                        disabled={uploadingBanner}
+                        onClick={() => setEditBannerUrl(null)}
+                        className="flex h-7 w-7 items-center justify-center rounded-md bg-black/60 text-white backdrop-blur transition hover:bg-rose-600 disabled:opacity-50"
+                        title="Remover banner"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="relative px-4 pb-4">
+                  <div className="-mt-10 flex items-end justify-between gap-3">
+                    <div className="group relative rounded-full border-[5px] border-white dark:border-[#111214]">
+                      <Avatar
+                        avatarUrl={editAvatarUrl}
+                        username={editUsername || username}
+                        globalName={editGlobalName || null}
+                        className="h-20 w-20"
+                      />
+
+                      <button
+                        type="button"
+                        disabled={uploadingAvatar}
+                        onClick={() => avatarInputRef.current?.click()}
+                        className="absolute inset-0 flex items-center justify-center rounded-full bg-black/0 text-white opacity-0 transition group-hover:bg-black/55 group-hover:opacity-100 disabled:opacity-50"
+                        title="Alterar avatar"
+                      >
+                        {uploadingAvatar ? (
+                          <Loader2 className="h-5 w-5 animate-spin" />
+                        ) : (
+                          <Pencil className="h-5 w-5" />
+                        )}
+                      </button>
+                    </div>
+
+                    {editAvatarUrl && (
+                      <button
+                        type="button"
+                        disabled={uploadingAvatar}
+                        onClick={() => setEditAvatarUrl(null)}
+                        className="mb-1 flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] font-semibold text-rose-500 transition hover:bg-rose-500/10 disabled:opacity-50"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Remover avatar
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="mt-3">
+                    <div className="text-lg font-bold text-stone-900 dark:text-white">
+                      {previewName}
+                    </div>
+                    <div className="text-xs text-stone-500 dark:text-zinc-400">
+                      @{editUsername || username}
+                    </div>
+                  </div>
+
+                  {editBio.trim() && (
+                    <div className="mt-3 border-t border-stone-200 pt-3 text-sm leading-relaxed text-stone-700 dark:border-zinc-800 dark:text-zinc-300">
+                      {editBio}
+                    </div>
                   )}
                 </div>
-                <span className={["absolute bottom-1 right-1 h-5 w-5 rounded-full border-[4px] border-white dark:border-[#111214]", currentStatus.color].join(" ")} />
               </div>
+
+              <div>
+                <FieldLabel>Nome de exibição</FieldLabel>
+                <input
+                  type="text"
+                  value={editGlobalName}
+                  maxLength={32}
+                  onChange={(event) => setEditGlobalName(event.target.value)}
+                  placeholder="Como as pessoas verão seu nome"
+                  className="h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm text-stone-900 outline-none transition focus:border-indigo-500 dark:border-zinc-700 dark:bg-black dark:text-white"
+                />
+                <div className="mt-1 text-right text-[10px] text-stone-400">
+                  {editGlobalName.length}/32
+                </div>
+              </div>
+
+              <div>
+                <FieldLabel>Nome de usuário</FieldLabel>
+                <div className="relative">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-stone-400">
+                    @
+                  </span>
+                  <input
+                    type="text"
+                    value={editUsername}
+                    maxLength={32}
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    onChange={(event) =>
+                      setEditUsername(
+                        event.target.value.toLowerCase().replace(/[^a-z0-9._]/g, ""),
+                      )
+                    }
+                    className="h-10 w-full rounded-md border border-stone-300 bg-white pl-8 pr-3 text-sm text-stone-900 outline-none transition focus:border-indigo-500 dark:border-zinc-700 dark:bg-black dark:text-white"
+                  />
+                </div>
+                <p className="mt-1 text-[10px] text-stone-500 dark:text-zinc-500">
+                  2–32 caracteres. Letras minúsculas, números, ponto e underline.
+                </p>
+              </div>
+
+              <div>
+                <FieldLabel>Sobre mim</FieldLabel>
+                <textarea
+                  value={editBio}
+                  maxLength={190}
+                  rows={4}
+                  onChange={(event) => setEditBio(event.target.value)}
+                  placeholder="Conte um pouco sobre você..."
+                  className="w-full resize-none rounded-md border border-stone-300 bg-white p-3 text-sm text-stone-900 outline-none transition focus:border-indigo-500 dark:border-zinc-700 dark:bg-black dark:text-white"
+                />
+                <div className="mt-1 text-right text-[10px] text-stone-400">
+                  {editBio.length}/190
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-5">
+              <div>
+                <FieldLabel>Status</FieldLabel>
+                <div className="space-y-1 rounded-xl border border-stone-200 p-1.5 dark:border-zinc-800">
+                  {statusOptions.map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => setEditStatus(option.id)}
+                      className={`flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition ${
+                        editStatus === option.id
+                          ? "bg-indigo-500/10"
+                          : "hover:bg-stone-100 dark:hover:bg-zinc-900"
+                      }`}
+                    >
+                      <span className={`mt-1 h-3 w-3 shrink-0 rounded-full ${option.color}`} />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold text-stone-800 dark:text-zinc-100">
+                          {option.label}
+                        </div>
+                        <div className="mt-0.5 text-[11px] text-stone-500 dark:text-zinc-500">
+                          {option.description}
+                        </div>
+                      </div>
+                      {editStatus === option.id && (
+                        <Check className="mt-0.5 h-4 w-4 text-indigo-500" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <FieldLabel>Status personalizado</FieldLabel>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={editCustomStatus}
+                    maxLength={128}
+                    onChange={(event) => setEditCustomStatus(event.target.value)}
+                    placeholder="O que você está fazendo?"
+                    className="h-10 w-full rounded-md border border-stone-300 bg-white px-3 pr-9 text-sm text-stone-900 outline-none transition focus:border-indigo-500 dark:border-zinc-700 dark:bg-black dark:text-white"
+                  />
+
+                  {editCustomStatus && (
+                    <button
+                      type="button"
+                      onClick={() => setEditCustomStatus("")}
+                      className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-stone-400 hover:bg-stone-100 hover:text-stone-700 dark:hover:bg-zinc-800 dark:hover:text-white"
+                      title="Limpar status personalizado"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+                <div className="mt-1 text-right text-[10px] text-stone-400">
+                  {editCustomStatus.length}/128
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-stone-200 bg-stone-50 p-3 dark:border-zinc-800 dark:bg-zinc-900/50">
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <Avatar
+                      avatarUrl={editAvatarUrl}
+                      username={editUsername || username}
+                      globalName={editGlobalName || null}
+                      className="h-10 w-10"
+                    />
+                    <span
+                      className={`absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-[3px] border-stone-50 dark:border-zinc-900 ${
+                        statusOptions.find((item) => item.id === editStatus)?.color || "bg-zinc-500"
+                      }`}
+                    />
+                  </div>
+
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-stone-900 dark:text-white">
+                      {previewName}
+                    </div>
+                    <div className="truncate text-xs text-stone-500 dark:text-zinc-400">
+                      {editCustomStatus ||
+                        statusOptions.find((item) => item.id === editStatus)?.label}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {feedback && (
+            <div className="rounded-md border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-600 dark:text-rose-400">
+              {feedback}
+            </div>
+          )}
+
+          <div className="flex items-center justify-between gap-3 border-t border-stone-200 pt-4 dark:border-zinc-800">
+            <button
+              type="button"
+              disabled={saving || uploadingAvatar || uploadingBanner || !hasUnsavedChanges}
+              onClick={resetDraft}
+              className="text-xs font-semibold text-stone-500 transition hover:text-stone-900 disabled:cursor-not-allowed disabled:opacity-40 dark:text-zinc-500 dark:hover:text-white"
+            >
+              Descartar alterações
+            </button>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={saving || uploadingAvatar || uploadingBanner}
+                onClick={() => {
+                  resetDraft();
+                  setSettingsOpen(false);
+                }}
+                className="rounded-md px-3 py-2 text-xs font-semibold text-stone-600 transition hover:bg-stone-100 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-900"
+              >
+                Cancelar
+              </button>
 
               <button
                 type="button"
-                onClick={() => { setProfileModalOpen(false); setEditProfileModalOpen(true); }}
-                className="rounded-md bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow transition-colors hover:bg-indigo-500"
+                disabled={
+                  saving ||
+                  uploadingAvatar ||
+                  uploadingBanner ||
+                  !hasUnsavedChanges
+                }
+                onClick={saveProfile}
+                className="flex min-w-28 items-center justify-center gap-2 rounded-md bg-indigo-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Editar Perfil
+                {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {saving ? "Salvando..." : "Salvar"}
               </button>
             </div>
-
-            <div>
-              <h2 className="text-xl font-bold text-stone-900 dark:text-white">{displayName}</h2>
-              <p className="text-sm font-medium text-stone-500 dark:text-zinc-400">@{username}</p>
-            </div>
-
-            {customStatus && (
-              <div className="mt-4 rounded-lg bg-stone-100 p-3 dark:bg-zinc-900">
-                <div className="flex items-center gap-2">
-                  <span className={["h-2.5 w-2.5 rounded-full", currentStatus.color].join(" ")} />
-                  <span className="text-xs font-semibold text-stone-700 dark:text-zinc-300">{currentStatus.label}</span>
-                </div>
-                <p className="mt-1 text-sm text-stone-600 dark:text-zinc-400">{customStatus}</p>
-              </div>
-            )}
-
-            {user?.bio && (
-              <div className="mt-4">
-                <h4 className="mb-1 text-[11px] font-bold uppercase tracking-wider text-stone-500 dark:text-zinc-400">Sobre mim</h4>
-                <p className="whitespace-pre-wrap text-sm leading-relaxed text-stone-700 dark:text-zinc-300">{user.bio}</p>
-              </div>
-            )}
-
-            <div className="mt-6 border-t border-stone-200 pt-4 dark:border-zinc-800">
-              <h4 className="mb-1 text-[11px] font-bold uppercase tracking-wider text-stone-500 dark:text-zinc-400">ID do usuário</h4>
-              <button
-                type="button"
-                onClick={copyUserId}
-                className="flex items-center gap-2 rounded-md px-1 py-1 text-xs text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-white"
-              >
-                <Copy className="h-3.5 w-3.5" />
-                <span className="truncate">{userId}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </Modal>
-
-      <Modal isOpen={editProfileModalOpen} onClose={() => setEditProfileModalOpen(false)} title="Editar perfil">
-        <div className="space-y-5">
-          <p className="text-sm text-stone-500 dark:text-zinc-400">
-            Personalize sua aparência com banner, avatar e biografia.
-          </p>
-
-          <div className="space-y-4 rounded-xl border border-stone-200 p-4 dark:border-zinc-800 bg-stone-50 dark:bg-zinc-900/40">
-            <div>
-              <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wider text-stone-500 dark:text-zinc-400">
-                Banner do Perfil
-              </label>
-              <div className="relative h-28 w-full overflow-hidden rounded-lg bg-indigo-600 mb-2 border border-stone-200 dark:border-zinc-800">
-                {editBannerUrl ? (
-                  <Banner bannerUrl={editBannerUrl} />
-                ) : (
-                  <div className="h-full w-full bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500" />
-                )}
-                <button
-                  type="button"
-                  onClick={() => editBannerRef.current?.click()}
-                  disabled={isUploadingBanner}
-                  className="absolute bottom-2 right-2 flex items-center gap-1.5 rounded-md bg-black/60 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur transition hover:bg-black/80"
-                >
-                  {isUploadingBanner ? <Loader2 size={14} className="animate-spin" /> : <ImagePlus size={14} />}
-                  Alterar banner
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wider text-stone-500 dark:text-zinc-400">
-                Avatar do Usuário
-              </label>
-              <div className="flex items-center gap-4">
-                <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-indigo-500 text-lg font-bold text-white shadow">
-                  {editAvatarUrl ? (
-                    <Avatar avatarUrl={editAvatarUrl} className="h-full w-full object-cover" />
-                  ) : (
-                    getInitials(displayName)
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => editAvatarRef.current?.click()}
-                  disabled={isUploadingAvatar}
-                  className="flex items-center gap-2 rounded-lg border border-stone-300 bg-white px-4 py-2 text-xs font-semibold text-stone-700 shadow-sm transition hover:bg-stone-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
-                >
-                  {isUploadingAvatar ? <Loader2 size={15} className="animate-spin" /> : <ImagePlus size={15} />}
-                  {isUploadingAvatar ? "Enviando..." : "Alterar avatar"}
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wider text-stone-500 dark:text-zinc-400">
-                Nome de Exibição
-              </label>
-              <input
-                type="text"
-                value={editGlobalName}
-                onChange={(e) => setEditGlobalName(e.target.value)}
-                placeholder="Seu nome visível"
-                className="h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm text-stone-900 outline-none transition-colors focus:border-indigo-500 dark:border-zinc-700 dark:bg-black dark:text-white"
-              />
-            </div>
-
-            <div>
-              <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wider text-stone-500 dark:text-zinc-400">
-                Sobre Mim
-              </label>
-              <textarea
-                value={editBio}
-                onChange={(e) => setEditBio(e.target.value)}
-                placeholder="Conte um pouco sobre você..."
-                rows={3}
-                className="w-full resize-none rounded-md border border-stone-300 bg-white p-3 text-sm text-stone-900 outline-none transition-colors focus:border-indigo-500 dark:border-zinc-700 dark:bg-black dark:text-white"
-              />
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-3 pt-2">
-            <button
-              onClick={() => setEditProfileModalOpen(false)}
-              disabled={isSaving}
-              className="rounded-md px-4 py-2 text-sm font-semibold text-stone-600 transition-colors hover:underline dark:text-zinc-400"
-            >
-              Cancelar
-            </button>
-            <button
-              onClick={handleSaveProfile}
-              disabled={isSaving || isUploadingAvatar || isUploadingBanner}
-              className="flex items-center justify-center rounded-md bg-indigo-600 px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-500 disabled:opacity-50 shadow"
-            >
-              {isSaving ? "Salvando..." : "Salvar alterações"}
-            </button>
           </div>
         </div>
       </Modal>

@@ -19,6 +19,7 @@ import NewConversationModal from "./NewConversationModal";
 import UserProfileModal from "./UserProfileModal";
 
 export default function DirectMessagesLayout() {
+  const [isMounted, setIsMounted] = useState(false);
   const [data, setData] = useState<DirectMessagesBootstrap | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [friendsSelected, setFriendsSelected] = useState(true);
@@ -32,6 +33,10 @@ export default function DirectMessagesLayout() {
   const [closeConversation, setCloseConversation] =
     useState<DirectConversationSummary | null>(null);
   const [closing, setClosing] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   const loadBootstrap = useCallback(
     async (preferredConversationId?: string | null) => {
@@ -78,8 +83,10 @@ export default function DirectMessagesLayout() {
   );
 
   useEffect(() => {
-    loadBootstrap();
-  }, []);
+    if (isMounted) {
+      loadBootstrap();
+    }
+  }, [isMounted, loadBootstrap]);
 
   const selectedConversation = useMemo(
     () =>
@@ -185,7 +192,7 @@ export default function DirectMessagesLayout() {
     await loadBootstrap(null);
   }
 
-  if (loading && !data) {
+  if (!isMounted || (loading && !data)) {
     return (
       <div className="flex min-w-0 flex-1 items-center justify-center bg-white dark:bg-zinc-950">
         <div className="flex flex-col items-center gap-3 text-zinc-500">

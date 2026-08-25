@@ -13,6 +13,7 @@ import {
     Volume2,
     X,
     Gift,
+    Info
 } from "lucide-react";
 
 import GifPicker from "./GifPicker";
@@ -47,130 +48,226 @@ interface UploadingFile {
 }
 
 function normalizeMessage(message: any): MessageData {
-    let parsed: any = message;
+  let parsed: any = message;
 
-    if (typeof message?.content === "string") {
-        try {
-            const json = JSON.parse(message.content);
+  if (typeof message?.content === "string") {
+    try {
+      const json = JSON.parse(message.content);
 
-            if (
-                json &&
-                typeof json === "object" &&
-                ("content" in json || "attachments" in json || "reply" in json)
-            ) {
-                parsed = { ...message, ...json };
-            }
-        } catch {}
-    }
+      if (
+        json &&
+        typeof json === "object" &&
+        (
+          "content" in json ||
+          "attachments" in json ||
+          "reply" in json
+        )
+      ) {
+        parsed = {
+          ...message,
+          ...json,
+        };
+      }
+    } catch {}
+  }
 
-    const structuredAuthor =
-        parsed.author &&
-        typeof parsed.author === "object" &&
-        !Array.isArray(parsed.author)
-            ? parsed.author
-            : null;
+  const structuredAuthor =
+    parsed.author &&
+    typeof parsed.author === "object" &&
+    !Array.isArray(parsed.author)
+      ? parsed.author
+      : null;
 
-    const memberUser = structuredAuthor || parsed.member?.user || {};
+  const memberUser =
+    structuredAuthor ||
+    parsed.member?.user ||
+    {};
 
-    const authorName =
-        typeof parsed.author === "string"
-            ? parsed.author
-            : parsed.authorName ||
-              memberUser.globalName ||
-              memberUser.displayName ||
-              memberUser.username ||
-              "Usuário";
+  const bot =
+    memberUser?.bot ??
+    structuredAuthor?.bot ??
+    parsed.bot ??
+    null;
 
-    const authorId =
-        parsed.authorId ||
-        parsed.userId ||
-        structuredAuthor?.id ||
-        memberUser.id;
+  const authorName =
+    typeof parsed.author === "string"
+      ? parsed.author
+      : parsed.authorName ||
+        memberUser.globalName ||
+        memberUser.displayName ||
+        memberUser.username ||
+        "Usuário";
 
-    const avatarUrl =
-        parsed.avatarUrl ??
-        structuredAuthor?.avatarUrl ??
-        memberUser.avatarUrl ??
-        memberUser.avatar ??
-        null;
+  const authorId =
+    parsed.authorId ||
+    parsed.userId ||
+    structuredAuthor?.id ||
+    memberUser.id;
 
-    const isWebhookMessage =
-        memberUser.email === "webhook@typecord.bot" ||
-        Boolean(parsed.isWebhook);
+  const avatarUrl =
+    parsed.avatarUrl ??
+    structuredAuthor?.avatarUrl ??
+    memberUser.avatarUrl ??
+    memberUser.avatar ??
+    null;
 
-    const normalizedReply = parsed.reply
-        ? {
-              messageId: String(
-                  parsed.reply.messageId ??
-                  parsed.reply.id ??
-                  parsed.replyToId ??
-                  "",
-              ),
-              author:
-                  typeof parsed.reply.author === "string"
-                      ? parsed.reply.author
-                      : parsed.reply.author?.globalName ||
-                        parsed.reply.author?.username ||
-                        "Usuário",
-              content: parsed.reply.deleted
-                  ? "Mensagem apagada"
-                  : parsed.reply.content || "",
-              avatarUrl:
-                  parsed.reply.avatarUrl ??
-                  parsed.reply.author?.avatarUrl ??
-                  null,
-          }
-        : null;
+  const isBot =
+    typeof parsed.isBot === "boolean"
+      ? parsed.isBot
+      : Boolean(bot);
 
-    const normalizedAttachments = Array.isArray(parsed.attachments)
-        ? parsed.attachments.map((attachment: any) => ({
-              ...attachment,
-              id: String(attachment.id ?? crypto.randomUUID()),
-              url: attachment.url ?? attachment.key ?? null,
-              filename: attachment.filename ?? attachment.name ?? "arquivo",
-              fileSize: attachment.fileSize ?? attachment.size ?? 0,
-              fileType:
-                  attachment.fileType ??
-                  attachment.contentType ??
-                  "application/octet-stream",
-              key: attachment.key ?? attachment.url ?? undefined,
-              name: attachment.name ?? attachment.filename ?? "arquivo",
-              size: attachment.size ?? attachment.fileSize ?? 0,
-              contentType:
-                  attachment.contentType ??
-                  attachment.fileType ??
-                  "application/octet-stream",
-          }))
-        : [];
+  const isBotVerified = 
+    typeof parsed.isBotVerified === "boolean"
+      ? parsed.isBotVerified
+      : typeof parsed.isVerifiedBot === "boolean"
+        ? parsed.isVerifiedBot
+        : Boolean(bot?.verified);
 
-    return {
-        id: String(parsed.id),
-        isBot: Boolean(parsed.isBot),
-        author: authorName,
-        authorId: authorId ? String(authorId) : undefined,
-        authorColor:
-            isWebhookMessage
-                ? "text-rose-500"
-                : parsed.authorColor || "text-indigo-400",
-        avatarColor:
-            isWebhookMessage
-                ? "bg-rose-600"
-                : parsed.avatarColor || "bg-indigo-600",
-        avatarUrl,
-        createdAt:
-            typeof parsed.createdAt === "string"
-                ? parsed.createdAt
-                : parsed.createdAt
-                  ? new Date(parsed.createdAt).toISOString()
-                  : new Date().toISOString(),
-        time: parsed.time || undefined,
-        content: parsed.deleted ? "" : parsed.content || "",
-        reply: normalizedReply,
-        attachments: normalizedAttachments,
-        embeds: Array.isArray(parsed.embeds) ? parsed.embeds : [],
-        isPending: parsed.isPending,
-        isWebhook: isWebhookMessage,
-    };
+  const isWebhookMessage =
+    memberUser.email === "webhook@typecord.bot" ||
+    Boolean(parsed.isWebhook);
+
+  const normalizedReply = parsed.reply
+    ? {
+        messageId: String(
+          parsed.reply.messageId ??
+          parsed.reply.id ??
+          parsed.replyToId ??
+          "",
+        ),
+
+        author:
+          typeof parsed.reply.author === "string"
+            ? parsed.reply.author
+            : parsed.reply.author?.globalName ||
+              parsed.reply.author?.username ||
+              "Usuário",
+
+        content: parsed.reply.deleted
+          ? "Mensagem apagada"
+          : parsed.reply.content || "",
+
+        avatarUrl:
+          parsed.reply.avatarUrl ??
+          parsed.reply.author?.avatarUrl ??
+          null,
+      }
+    : null;
+
+  const normalizedAttachments =
+    Array.isArray(parsed.attachments)
+      ? parsed.attachments.map(
+          (attachment: any) => ({
+            ...attachment,
+
+            id: String(
+              attachment.id ??
+              crypto.randomUUID(),
+            ),
+
+            url:
+              attachment.url ??
+              attachment.key ??
+              null,
+
+            filename:
+              attachment.filename ??
+              attachment.name ??
+              "arquivo",
+
+            fileSize:
+              attachment.fileSize ??
+              attachment.size ??
+              0,
+
+            fileType:
+              attachment.fileType ??
+              attachment.contentType ??
+              "application/octet-stream",
+
+            key:
+              attachment.key ??
+              attachment.url ??
+              undefined,
+
+            name:
+              attachment.name ??
+              attachment.filename ??
+              "arquivo",
+
+            size:
+              attachment.size ??
+              attachment.fileSize ??
+              0,
+
+            contentType:
+              attachment.contentType ??
+              attachment.fileType ??
+              "application/octet-stream",
+          }),
+        )
+      : [];
+
+  return {
+    id: String(parsed.id),
+
+    author: authorName,
+
+    authorId: authorId
+      ? String(authorId)
+      : undefined,
+
+    authorColor: isWebhookMessage
+      ? "text-rose-500"
+      : parsed.authorColor ||
+        "text-indigo-400",
+
+    avatarColor: isWebhookMessage
+      ? "bg-rose-600"
+      : parsed.avatarColor ||
+        "bg-indigo-600",
+
+    avatarUrl,
+
+    createdAt:
+      typeof parsed.createdAt === "string"
+        ? parsed.createdAt
+        : parsed.createdAt
+          ? new Date(
+              parsed.createdAt,
+            ).toISOString()
+          : new Date().toISOString(),
+
+    time:
+      parsed.time ||
+      undefined,
+
+    content:
+      parsed.deleted
+        ? ""
+        : parsed.content || "",
+
+    reply:
+      normalizedReply,
+
+    attachments:
+      normalizedAttachments,
+
+    embeds:
+      Array.isArray(parsed.embeds)
+        ? parsed.embeds
+        : [],
+
+    isPending:
+      Boolean(parsed.isPending),
+
+    isBot,
+
+    isBotVerified,
+
+    isWebhook:
+      isWebhookMessage,
+  };
 }
 
 export default function ChatArea({

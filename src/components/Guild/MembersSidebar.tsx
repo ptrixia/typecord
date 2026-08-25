@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleUserRound, Copy, MessageCircle, MoreHorizontal, X } from "lucide-react";
+import { Check, CircleUserRound, Copy, MessageCircle, MoreHorizontal, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import Avatar from "../Image/Avatar";
 
@@ -10,6 +10,7 @@ interface PopupPosition {
 }
 
 export default function MembersSidebar({ members }: { members: any[] }) {
+  console.log(members)
   const [selectedMember, setSelectedMember] = useState<any | null>(null);
   const [popupPosition, setPopupPosition] = useState<PopupPosition>({ top: 100, left: 100 });
   const popupRef = useRef<HTMLDivElement>(null);
@@ -125,6 +126,22 @@ export default function MembersSidebar({ members }: { members: any[] }) {
                       >
                         {user?.globalName || user?.username}
                       </span>
+                      {user?.bot && (
+  <>
+   <span className="inline-flex items-center gap-1 rounded-[3px] bg-indigo-500 px-1.5 py-0.5 text-[10px] font-bold uppercase leading-none tracking-wide text-white">
+  BOT
+
+  {user.bot.verified && (
+    <Check
+      strokeWidth={3}
+      className="h-3 w-3 shrink-0 text-white"
+    />
+  )}
+</span>
+
+    
+  </>
+)}
                     </div>
                   );
                 })}

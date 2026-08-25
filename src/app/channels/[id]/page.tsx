@@ -1,6 +1,6 @@
 import Navbar from "@/components/Navbar";
 import Sidebar from "@/components/Sidebar/index";
-import DirectMessagesLayout from "@/components/DirectMessages/DirectMessagesLayout";
+import DirectMessagesLayout from "@/components/DirectMessages/DirectMessagesLayout"; // <--- Importação necessária
 import EmptyChannel from "@/components/Channels/EmptyChannel";
 import GuildLayout from "@/components/Guild/GuildLayout";
 import { getGuildById } from "@/actions/guilds";
@@ -38,7 +38,7 @@ export default async function ChannelsPage({ params }: ChannelsPageProps) {
         <Sidebar />
 
         {isDirectMessages ? (
-          <DirectMessagesLayout />
+          <DirectMessagesLayout /> 
         ) : currentGuild ? (
           <GuildLayout guild={currentGuild} currentMember={currentMember} />
         ) : (
