@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Hash, Plus, Volume2, ChevronDown, Settings, LogOut, Check } from "lucide-react";
+import { Hash, Plus, Volume2, ChevronDown, Settings, LogOut, Check, BadgeCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import UserProfileSideBar from "../UserProfileSideBar";
 import Modal from "../Modal";
@@ -40,6 +40,8 @@ export default function ChannelsSidebar({
   currentMember,
 }: ChannelsSidebarProps) {
   const router = useRouter();
+
+  console.log('VERIFIED GUILD', guild)
   
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
@@ -107,75 +109,124 @@ export default function ChannelsSidebar({
     <>
       <div className="relative flex w-60 shrink-0 flex-col bg-stone-300/50 dark:bg-[#111214]">
         <div ref={dropdownRef} className="relative w-full z-30">
-          {resolvedBannerUrl ? (
-            <div 
-              onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-              className="group relative flex h-32 w-full cursor-pointer items-start justify-between overflow-hidden bg-stone-400 transition-all dark:bg-zinc-800"
-            >
-              <img src={resolvedBannerUrl} alt="Banner" className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
-              <div className="absolute inset-0 bg-gradient-to-b from-black/80 via-black/20 to-transparent transition-opacity group-hover:bg-black/40" />
-              <div className="relative z-10 flex w-full items-center justify-between p-4 pt-3 font-bold text-white text-shadow-sm">
-                
-                <div className="flex flex-row gap-2"><span className="truncate">{guild.name}  </span> 
-                
-                {/* <Tooltip>
-                        <TooltipTrigger>
-                            <Check className="rounded-2xl" color="#2FFA73"/>
-                        </TooltipTrigger>
-                
-                        <TooltipContent
-                          side="right"
-                          sideOffset={20}
-                          className="w-72 p-0 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-[#111214] text-zinc-950 dark:text-zinc-50 z-[100]"
-                        >
-                           <div className="relative p-4 pt-3">Servidor Verificado</div>
-                        </TooltipContent>
-                      </Tooltip> */}
-                      
-                      </div>
-                <ChevronDown className={`h-4 w-4 shrink-0 transition-transform duration-200 ${isDropdownOpen ? "rotate-180" : ""}`} />
-              </div>
-            </div>
-          ) : (
-            <div 
-              onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-              className="flex h-12 shrink-0 cursor-pointer items-center justify-between border-b border-stone-300 px-4 font-bold shadow-sm transition-colors hover:bg-stone-300/80 dark:border-zinc-800/60 dark:text-white dark:hover:bg-zinc-800/50"
-            >
-              <span className="truncate">{guild.name}</span>
-              <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${isDropdownOpen ? "rotate-180" : ""}`} />
-            </div>
-          )}
+  {resolvedBannerUrl ? (
+    <div
+      onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+      className="group relative flex h-32 w-full cursor-pointer items-start justify-between overflow-hidden bg-stone-400 transition-all dark:bg-zinc-800"
+    >
+      <img
+        src={resolvedBannerUrl}
+        alt="Banner"
+        className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+      />
+      <div className="absolute inset-0 bg-gradient-to-b from-black/80 via-black/20 to-transparent transition-opacity group-hover:bg-black/40" />
+      <div className="relative z-10 flex w-full items-center justify-between p-4 pt-3 font-bold text-white text-shadow-sm">
+        
+        {/* GRUPO: BADGE + NOME JUNTOS */}
+        <div className="flex items-center gap-2 overflow-hidden">
+          {guild.verified && (
+            <Tooltip delayDuration={200}>
+              <TooltipTrigger className="flex shrink-0 cursor-default items-center focus:outline-none">
+                <BadgeCheck
+                  className="h-5 w-5 fill-[#2FFA73] text-white dark:text-[#111214]"
+                  aria-label="Servidor Verificado"
+                />
+              </TooltipTrigger>
 
-          {isDropdownOpen && (
-            <div className="absolute left-2 right-2 top-full z-[9999] mt-2 rounded-md border border-stone-200 bg-white p-2 shadow-2xl dark:border-zinc-800 dark:bg-[#111214]">
-              {canManageChannels && (
-                <button 
-                  onClick={() => { setIsSettingsModalOpen(true); setIsDropdownOpen(false); }}
-                  className="flex w-full items-center justify-between rounded px-2 py-1.5 text-sm font-medium text-stone-700 transition-colors hover:bg-indigo-500 hover:text-white dark:text-zinc-200"
-                >
-                  Configurações do Servidor
-                  <Settings className="h-4 w-4" />
-                </button>
-              )}
-              {canManageChannels && (
-                <button 
-                  onClick={() => { setIsCreateChannelModalOpen(true); setIsDropdownOpen(false); }}
-                  className="flex w-full items-center justify-between rounded px-2 py-1.5 text-sm font-medium text-stone-700 transition-colors hover:bg-indigo-500 hover:text-white dark:text-zinc-200"
-                >
-                  Criar Canal
-                  <Plus className="h-4 w-4" />
-                </button>
-              )}
-              
-              {canManageChannels && <div className="my-1 h-px bg-stone-200 dark:bg-zinc-800" />}
-              
-              <button className="flex w-full items-center justify-between rounded px-2 py-1.5 text-sm font-medium text-red-500 transition-colors hover:bg-red-500 hover:text-white">
-                Sair do Servidor
-                <LogOut className="h-4 w-4" />
-              </button>
-            </div>
+              <TooltipContent
+                side="top"
+                sideOffset={8}
+                className="z-[100] rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-900 shadow-md dark:border-zinc-800 dark:bg-[#111214] dark:text-zinc-100"
+              >
+                Servidor Verificado
+              </TooltipContent>
+            </Tooltip>
           )}
+          <span className="truncate">{guild.name}</span>
         </div>
+
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 transition-transform duration-200 ${
+            isDropdownOpen ? "rotate-180" : ""
+          }`}
+        />
+      </div>
+    </div>
+  ) : (
+    <div
+      onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+      className="flex h-12 shrink-0 cursor-pointer items-center justify-between border-b border-stone-300 px-4 font-bold shadow-sm transition-colors hover:bg-stone-300/80 dark:border-zinc-800/60 dark:text-white dark:hover:bg-zinc-800/50"
+    >
+        
+      {/* GRUPO: BADGE + NOME JUNTOS (Versão sem banner) */}
+      <div className="flex items-center gap-2 overflow-hidden">
+        {guild.verified && (
+          <Tooltip >
+            <TooltipTrigger className="flex shrink-0 cursor-default items-center focus:outline-none">
+              <BadgeCheck
+                className="h-5 w-5 fill-[#2FFA73] text-white dark:text-[#111214]"
+                aria-label="Servidor Verificado"
+              />
+            </TooltipTrigger>
+
+            <TooltipContent
+              side="bottom"
+              sideOffset={8}
+              className="z-[100] rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-900 shadow-md dark:border-zinc-800 dark:bg-[#111214] dark:text-zinc-100"
+            >
+              Servidor Verificado
+            </TooltipContent>
+          </Tooltip>
+        )}
+        <span className="truncate">{guild.name}</span>
+      </div>
+
+      <ChevronDown
+        className={`h-4 w-4 shrink-0 transition-transform duration-200 ${
+          isDropdownOpen ? "rotate-180" : ""
+        }`}
+      />
+    </div>
+  )}
+
+  {isDropdownOpen && (
+    <div className="absolute left-2 right-2 top-full z-[9999] mt-2 rounded-md border border-stone-200 bg-white p-2 shadow-2xl dark:border-zinc-800 dark:bg-[#111214]">
+      {canManageChannels && (
+        <button
+          onClick={() => {
+            setIsSettingsModalOpen(true);
+            setIsDropdownOpen(false);
+          }}
+          className="flex w-full items-center justify-between rounded px-2 py-1.5 text-sm font-medium text-stone-700 transition-colors hover:bg-indigo-500 hover:text-white dark:text-zinc-200"
+        >
+          Configurações do Servidor
+          <Settings className="h-4 w-4" />
+        </button>
+      )}
+      {canManageChannels && (
+        <button
+          onClick={() => {
+            setIsCreateChannelModalOpen(true);
+            setIsDropdownOpen(false);
+          }}
+          className="flex w-full items-center justify-between rounded px-2 py-1.5 text-sm font-medium text-stone-700 transition-colors hover:bg-indigo-500 hover:text-white dark:text-zinc-200"
+        >
+          Criar Canal
+          <Plus className="h-4 w-4" />
+        </button>
+      )}
+
+      {canManageChannels && (
+        <div className="my-1 h-px bg-stone-200 dark:bg-zinc-800" />
+      )}
+
+      <button className="flex w-full items-center justify-between rounded px-2 py-1.5 text-sm font-medium text-red-500 transition-colors hover:bg-red-500 hover:text-white">
+        Sair do Servidor
+        <LogOut className="h-4 w-4" />
+      </button>
+    </div>
+  )}
+</div>
 
         <div className="flex-1 overflow-y-auto p-2">
           <div className="flex items-center justify-between px-2 pb-1 pt-4 group">

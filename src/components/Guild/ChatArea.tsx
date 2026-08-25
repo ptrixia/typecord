@@ -16,6 +16,9 @@ import {
     Info
 } from "lucide-react";
 
+import type {
+  MessageEmbedData,
+} from "../Message/MessageEmbed";
 import GifPicker from "./GifPicker";
 import EmojiPicker, { Theme } from "emoji-picker-react";
 import SearchCommand from "../SearchCommand";
@@ -47,20 +50,93 @@ interface UploadingFile {
     progress: number;
 }
 
-function normalizeMessage(message: any): MessageData {
-  let parsed: any = message;
+async function generateLinkEmbeds(
+  content: string,
+): Promise<MessageEmbedData[]> {
+  if (
+    !content ||
+    !/https?:\/\//i.test(
+      content,
+    )
+  ) {
+    return [];
+  }
 
-  if (typeof message?.content === "string") {
+  try {
+    const response =
+      await fetch(
+        "/api/link-preview",
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+
+          body: JSON.stringify({
+            content,
+          }),
+        },
+      );
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const data =
+      await response
+        .json()
+        .catch(
+          () => null,
+        );
+
+    if (
+      !data?.success ||
+      !Array.isArray(
+        data.embeds,
+      )
+    ) {
+      return [];
+    }
+
+    return data.embeds;
+  } catch (error) {
+    console.error(
+      "[LINK_PREVIEW_CLIENT]",
+      error,
+    );
+
+    return [];
+  }
+}
+
+function normalizeMessage(
+  message: any,
+): MessageData {
+  let parsed: any =
+    message;
+
+  if (
+    typeof message?.content ===
+    "string"
+  ) {
     try {
-      const json = JSON.parse(message.content);
+      const json =
+        JSON.parse(
+          message.content,
+        );
 
       if (
         json &&
-        typeof json === "object" &&
+        typeof json ===
+          "object" &&
         (
           "content" in json ||
-          "attachments" in json ||
-          "reply" in json
+          "attachments" in
+            json ||
+          "reply" in json ||
+          "embeds" in json
         )
       ) {
         parsed = {
@@ -73,8 +149,11 @@ function normalizeMessage(message: any): MessageData {
 
   const structuredAuthor =
     parsed.author &&
-    typeof parsed.author === "object" &&
-    !Array.isArray(parsed.author)
+    typeof parsed.author ===
+      "object" &&
+    !Array.isArray(
+      parsed.author,
+    )
       ? parsed.author
       : null;
 
@@ -90,7 +169,8 @@ function normalizeMessage(message: any): MessageData {
     null;
 
   const authorName =
-    typeof parsed.author === "string"
+    typeof parsed.author ===
+    "string"
       ? parsed.author
       : parsed.authorName ||
         memberUser.globalName ||
@@ -112,57 +192,88 @@ function normalizeMessage(message: any): MessageData {
     null;
 
   const isBot =
-    typeof parsed.isBot === "boolean"
+    typeof parsed.isBot ===
+    "boolean"
       ? parsed.isBot
       : Boolean(bot);
 
-  const isBotVerified = 
-    typeof parsed.isBotVerified === "boolean"
+  const isBotVerified =
+    typeof parsed.isBotVerified ===
+    "boolean"
       ? parsed.isBotVerified
-      : typeof parsed.isVerifiedBot === "boolean"
+      : typeof parsed.isVerifiedBot ===
+          "boolean"
         ? parsed.isVerifiedBot
-        : Boolean(bot?.verified);
+        : Boolean(
+            bot?.verified,
+          );
 
   const isWebhookMessage =
-    memberUser.email === "webhook@typecord.bot" ||
-    Boolean(parsed.isWebhook);
+    memberUser.email ===
+      "webhook@typecord.bot" ||
+    Boolean(
+      parsed.isWebhook,
+    );
 
-  const normalizedReply = parsed.reply
-    ? {
-        messageId: String(
-          parsed.reply.messageId ??
-          parsed.reply.id ??
-          parsed.replyToId ??
-          "",
-        ),
+  const normalizedReply =
+    parsed.reply
+      ? {
+          messageId:
+            String(
+              parsed.reply
+                .messageId ??
+                parsed.reply
+                  .id ??
+                parsed.replyToId ??
+                "",
+            ),
 
-        author:
-          typeof parsed.reply.author === "string"
-            ? parsed.reply.author
-            : parsed.reply.author?.globalName ||
-              parsed.reply.author?.username ||
-              "Usuário",
+          author:
+            typeof parsed
+              .reply
+              .author ===
+            "string"
+              ? parsed.reply
+                  .author
+              : parsed.reply
+                    .author
+                    ?.globalName ||
+                parsed.reply
+                  .author
+                  ?.username ||
+                "Usuário",
 
-        content: parsed.reply.deleted
-          ? "Mensagem apagada"
-          : parsed.reply.content || "",
+          content:
+            parsed.reply
+              .deleted
+              ? "Mensagem apagada"
+              : parsed.reply
+                  .content ||
+                "",
 
-        avatarUrl:
-          parsed.reply.avatarUrl ??
-          parsed.reply.author?.avatarUrl ??
-          null,
-      }
-    : null;
+          avatarUrl:
+            parsed.reply
+              .avatarUrl ??
+            parsed.reply
+              .author
+              ?.avatarUrl ??
+            null,
+        }
+      : null;
 
   const normalizedAttachments =
-    Array.isArray(parsed.attachments)
+    Array.isArray(
+      parsed.attachments,
+    )
       ? parsed.attachments.map(
-          (attachment: any) => ({
+          (
+            attachment: any,
+          ) => ({
             ...attachment,
 
             id: String(
               attachment.id ??
-              crypto.randomUUID(),
+                crypto.randomUUID(),
             ),
 
             url:
@@ -208,29 +319,78 @@ function normalizeMessage(message: any): MessageData {
         )
       : [];
 
+  const normalizedEmbeds =
+    Array.isArray(
+      parsed.embeds,
+    )
+      ? parsed.embeds.map(
+          (embed: any) => ({
+            url:
+              embed.url ??
+              undefined,
+
+            title:
+              embed.title ??
+              undefined,
+
+            description:
+              embed.description ??
+              undefined,
+
+            siteName:
+              embed.siteName ??
+              embed.authorName ??
+              undefined,
+
+            color:
+              embed.color ??
+              "#5865F2",
+
+            image:
+              embed.image ??
+              embed.imageUrl ??
+              undefined,
+
+            thumbnail:
+              embed.thumbnail ??
+              embed.thumbnailUrl ??
+              undefined,
+          }),
+        )
+      : [];
+
   return {
-    id: String(parsed.id),
+    id: String(
+      parsed.id,
+    ),
 
-    author: authorName,
+    author:
+      authorName,
 
-    authorId: authorId
-      ? String(authorId)
-      : undefined,
+    authorId:
+      authorId
+        ? String(
+            authorId,
+          )
+        : undefined,
 
-    authorColor: isWebhookMessage
-      ? "text-rose-500"
-      : parsed.authorColor ||
-        "text-indigo-400",
+    authorColor:
+      isWebhookMessage
+        ? "text-rose-500"
+        : parsed.authorColor ||
+          "text-indigo-400",
 
-    avatarColor: isWebhookMessage
-      ? "bg-rose-600"
-      : parsed.avatarColor ||
-        "bg-indigo-600",
+    avatarColor:
+      isWebhookMessage
+        ? "bg-rose-600"
+        : parsed.avatarColor ||
+          "bg-indigo-600",
 
     avatarUrl,
 
     createdAt:
-      typeof parsed.createdAt === "string"
+      typeof parsed.createdAt ===
+      "string"
         ? parsed.createdAt
         : parsed.createdAt
           ? new Date(
@@ -245,7 +405,8 @@ function normalizeMessage(message: any): MessageData {
     content:
       parsed.deleted
         ? ""
-        : parsed.content || "",
+        : parsed.content ||
+          "",
 
     reply:
       normalizedReply,
@@ -254,12 +415,12 @@ function normalizeMessage(message: any): MessageData {
       normalizedAttachments,
 
     embeds:
-      Array.isArray(parsed.embeds)
-        ? parsed.embeds
-        : [],
+      normalizedEmbeds,
 
     isPending:
-      Boolean(parsed.isPending),
+      Boolean(
+        parsed.isPending,
+      ),
 
     isBot,
 
@@ -805,134 +966,194 @@ export default function ChatArea({
     };
 
     const sendMessage = async (
-        text = inputValue.trim(),
-        attachments: any[] = [],
-    ) => {
-        if (!channel?.id) return;
-        if (!text && attachments.length === 0) return;
+  text =
+    inputValue.trim(),
+  attachments: any[] = [],
+) => {
+  if (!channel?.id) {
+    return;
+  }
 
-        const currentReply = replyingTo;
+  if (
+    !text &&
+    attachments.length === 0
+  ) {
+    return;
+  }
 
-        setInputValue("");
-        setReplyingTo(null);
-        setMentionSuggestions([]);
+  const currentReply =
+    replyingTo;
 
-        if (textareaRef.current) {
-            textareaRef.current.style.height = "auto";
-        }
+  setInputValue("");
+  setReplyingTo(null);
+  setMentionSuggestions([]);
 
-        try {
-            if (isDirect) {
-                const directAttachments = attachments.map(
-                    (attachment: any) => ({
-                        url: attachment.url,
-                        filename:
-                            attachment.filename ||
-                            attachment.name ||
-                            "arquivo",
-                        fileSize:
-                            attachment.fileSize ??
-                            attachment.size ??
-                            0,
-                        fileType:
-                            attachment.fileType ||
-                            attachment.contentType ||
-                            "application/octet-stream",
-                    }),
-                );
+  if (
+    textareaRef.current
+  ) {
+    textareaRef.current.style.height =
+      "auto";
+  }
 
-                const response = await fetch(
-                    `/api/direct-messages/conversations/${channel.id}/messages`,
-                    {
-                        method: "POST",
-                        headers: {
-                            "Content-Type":
-                                "application/json",
-                        },
-                        body: JSON.stringify({
-                            content: text,
-                            replyToId:
-                                currentReply?.id ?? null,
-                            attachments:
-                                directAttachments,
-                        }),
-                    },
-                );
+  try {
+    if (isDirect) {
+      const directAttachments =
+        attachments.map(
+          (
+            attachment: any,
+          ) => ({
+            url:
+              attachment.url,
 
-                const data = await response.json();
+            filename:
+              attachment.filename ||
+              attachment.name ||
+              "arquivo",
 
-                if (
-                    !response.ok ||
-                    !data.success ||
-                    !data.message
-                ) {
-                    throw new Error(
-                        data.message ||
-                            "Não foi possível enviar a mensagem.",
-                    );
-                }
+            fileSize:
+              attachment.fileSize ??
+              attachment.size ??
+              0,
 
-                const sentMessage =
-                    normalizeMessage(data.message);
+            fileType:
+              attachment.fileType ||
+              attachment.contentType ||
+              "application/octet-stream",
+          }),
+        );
 
-                setMessages((prev) => {
-                    if (
-                        prev.some(
-                            (message) =>
-                                message.id ===
-                                sentMessage.id,
-                        )
-                    ) {
-                        return prev;
-                    }
+      const response =
+        await fetch(
+          `/api/direct-messages/conversations/${channel.id}/messages`,
+          {
+            method: "POST",
 
-                    return [...prev, sentMessage];
-                });
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
 
-                await onDirectConversationChanged?.();
+            body:
+              JSON.stringify({
+                content:
+                  text,
 
-                requestAnimationFrame(() => {
-                    messagesEndRef.current?.scrollIntoView({
-                        behavior: "smooth",
-                    });
-                });
+                replyToId:
+                  currentReply?.id ??
+                  null,
 
-                return;
+                attachments:
+                  directAttachments,
+              }),
+          },
+        );
+
+      const data =
+        await response.json();
+
+      if (
+        !response.ok ||
+        !data.success ||
+        !data.message
+      ) {
+        throw new Error(
+          data.message ||
+            "Não foi possível enviar a mensagem.",
+        );
+      }
+
+      const sentMessage =
+        normalizeMessage(
+          data.message,
+        );
+
+      setMessages(
+        (prev) => {
+          if (
+            prev.some(
+              (
+                message,
+              ) =>
+                message.id ===
+                sentMessage.id,
+            )
+          ) {
+            return prev;
+          }
+
+          return [
+            ...prev,
+            sentMessage,
+          ];
+        },
+      );
+
+      await onDirectConversationChanged?.();
+
+      requestAnimationFrame(
+        () => {
+          messagesEndRef.current?.scrollIntoView(
+            {
+              behavior:
+                "smooth",
+            },
+          );
+        },
+      );
+
+      return;
+    }
+
+    const embeds =
+      await generateLinkEmbeds(
+        text,
+      );
+
+    const payload = {
+      content: text,
+
+      reply:
+        currentReply
+          ? {
+              messageId:
+                currentReply.id,
+
+              author:
+                currentReply.author,
+
+              content:
+                currentReply.content,
+
+              avatarUrl:
+                currentReply.avatarUrl ??
+                null,
             }
+          : null,
 
-            const payload = {
-                content: text,
-                reply: currentReply
-                    ? {
-                          messageId: currentReply.id,
-                          author: currentReply.author,
-                          content: currentReply.content,
-                          avatarUrl:
-                              currentReply.avatarUrl ??
-                              null,
-                      }
-                    : null,
-                attachments,
-                embeds: [],
-            };
+      attachments,
 
-            await sendMessageAction(
-                channel.id,
-                JSON.stringify(payload),
-            );
-        } catch (error) {
-            console.error(
-                "[CHAT_MESSAGE_SEND]",
-                error,
-            );
-
-            alert(
-                error instanceof Error
-                    ? error.message
-                    : "Não foi possível enviar a mensagem.",
-            );
-        }
+      embeds,
     };
+
+    await sendMessageAction(
+      channel.id,
+      JSON.stringify(
+        payload,
+      ),
+    );
+  } catch (error) {
+    console.error(
+      "[CHAT_MESSAGE_SEND]",
+      error,
+    );
+
+    alert(
+      error instanceof Error
+        ? error.message
+        : "Não foi possível enviar a mensagem.",
+    );
+  }
+};
 
     const handleSendMedia = (url: string) => {
         sendMessage(`![GIF](${url})`);

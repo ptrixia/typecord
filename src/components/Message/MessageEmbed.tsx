@@ -1,186 +1,151 @@
 "use client";
-import ReactMarkdown from 'react-markdown';
-import MarkdownRenderer from './MarkDownRenderer'
-import remarkGfm from 'remark-gfm';
-import React from 'react';
-export interface MessageEmbedData {
-    url?: string;
-    title?: string;
-    description?: string;
-    siteName?: string;
-    color?: string;
-    image?: string;
-    thumbnail?: string;
-}
 
+import {
+  ExternalLink,
+} from "lucide-react";
+
+import MarkdownRenderer from "./MarkDownRenderer";
+
+export interface MessageEmbedData {
+  url?: string;
+  title?: string;
+  description?: string;
+  siteName?: string;
+  color?: string;
+  image?: string;
+  thumbnail?: string;
+}
 
 interface MessageEmbedProps {
-    embed: MessageEmbedData;
+  embed: MessageEmbedData;
+  users?: any[];
+  channels?: any[];
 }
 
-
 export default function MessageEmbed({
-    embed,
+  embed,
+  users = [],
+  channels = [],
 }: MessageEmbedProps) {
-    return (
-        <div
-            className="mt-2 max-w-[520px] overflow-hidden rounded-md border border-zinc-200 bg-stone-100 dark:border-zinc-700 dark:bg-[#2b2d31]"
-            style={{
-                borderLeftWidth: 4,
-                borderLeftColor: embed.color || "#5865F2",
-            }}
-        >
-            <div className="p-3">
-                {embed.siteName && (
-                    <div className="mb-1 text-xs font-medium text-zinc-500">
-                        {embed.siteName}
-                    </div>
-                )}
-
-                {embed.title && (
-                    <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                        {embed.url ? (
-                            <a
-                                href={embed.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="hover:underline"
-                            >
-                                {embed.title}
-                            </a>
-                        ) : (
-                            embed.title
-                        )}
-                    </div>
-                )}
-
-                {embed.description && (
-                    <div className="mt-1 whitespace-pre-wrap text-xs leading-5 text-zinc-600 dark:text-zinc-300">
-                                <ReactMarkdown
-                                    remarkPlugins={[remarkGfm]}
-                                    components={{
-
-                        
-                                        strong: ({ children }) => (
-                                            <strong className="font-bold text-stone-900 dark:text-zinc-100">
-                                                {children}
-                                            </strong>
-                                        ),
-                        
-                                        em: ({ children }) => (
-                                            <em className="italic">
-                                                {children}
-                                            </em>
-                                        ),
-                        
-                                        del: ({ children }) => (
-                                            <del className="text-stone-500 dark:text-zinc-500">
-                                                {children}
-                                            </del>
-                                        ),
-                        
-                                        blockquote: ({ children }) => (
-                                            <blockquote className="my-1 border-l-4 border-zinc-400 pl-3 text-stone-500 dark:border-zinc-600 dark:text-zinc-400">
-                                                {children}
-                                            </blockquote>
-                                        ),
-                        
-                                        ul: ({ children }) => (
-                                            <ul className="ml-5 list-disc">
-                                                {children}
-                                            </ul>
-                                        ),
-                        
-                                        ol: ({ children }) => (
-                                            <ol className="ml-5 list-decimal">
-                                                {children}
-                                            </ol>
-                                        ),
-                        
-                                        li: ({ children }) => (
-                                            <li className="leading-5">
-                                                {children}
-                                            </li>
-                                        ),
-                        
-                                        a: ({ href, children }) => (
-                                            <a
-                                                href={href}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="break-all text-indigo-500 hover:underline dark:text-indigo-300"
-                                            >
-                                                {children}
-                                            </a>
-                                        ),
-                        
-                                        code: ({
-                                            inline,
-                                            className,
-                                            children,
-                                            ...props
-                                        }: any) => {
-                                            const match = /language-(\w+)/.exec(
-                                                className || ""
-                                            );
-                        
-                                            if (!inline && match) {
-                                                return (
-                                                    <pre className="my-2 max-w-full overflow-x-auto rounded-md border border-stone-300 bg-stone-200 p-3 text-[13px] dark:border-zinc-800 dark:bg-[#1e1f22]">
-                                                        <code
-                                                            className={className}
-                                                            {...props}
-                                                        >
-                                                            {children}
-                                                        </code>
-                                                    </pre>
-                                                );
-                                            }
-                        
-                                            return (
-                                                <code
-                                                    className="rounded bg-stone-200 px-1.5 py-0.5 font-mono text-[13px] dark:bg-zinc-800"
-                                                    {...props}
-                                                >
-                                                    {children}
-                                                </code>
-                                            );
-                                        },
-                        
-                                        img: ({ src, alt }) => (
-                                            <img
-                                                src={src}
-                                                alt={alt || "Imagem"}
-                                                loading="lazy"
-                                                className="my-2 max-h-[500px] max-w-[500px] rounded-lg border border-stone-200 object-contain dark:border-zinc-800"
-                                            />
-                                        ),
-                                    }}
-                                >
-                                    {embed.description}
-                                </ReactMarkdown>
-                        
-                    </div>
-                )}
-
-                {embed.image && (
-                    <img
-                        src={embed.image}
-                        alt={embed.title || "Embed"}
-                        loading="lazy"
-                        className="mt-3 max-h-[300px] max-w-full rounded-md object-cover"
-                    />
-                )}
-
-                {embed.thumbnail && (
-                    <img
-                        src={embed.thumbnail}
-                        alt=""
-                        loading="lazy"
-                        className="mt-3 max-h-[100px] max-w-[160px] rounded-md object-cover"
-                    />
-                )}
-            </div>
-        </div>
+  const hasContent =
+    Boolean(
+      embed.siteName ||
+        embed.title ||
+        embed.description ||
+        embed.image ||
+        embed.thumbnail,
     );
+
+  if (!hasContent) {
+    return null;
+  }
+
+  return (
+    <article
+      className="mt-2 w-fit max-w-[520px] overflow-hidden rounded-md border border-zinc-200 bg-stone-100 dark:border-zinc-700 dark:bg-[#2b2d31]"
+      style={{
+        borderLeftWidth: 4,
+        borderLeftColor:
+          embed.color ||
+          "#5865F2",
+      }}
+    >
+      <div className="p-3">
+        {embed.siteName && (
+          <div className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+            {embed.siteName}
+          </div>
+        )}
+
+        {embed.title && (
+          <div className="flex items-start gap-1.5 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+            {embed.url ? (
+              <a
+                href={
+                  embed.url
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                className="min-w-0 break-words text-indigo-600 hover:underline dark:text-indigo-300"
+              >
+                {embed.title}
+              </a>
+            ) : (
+              <span className="min-w-0 break-words">
+                {embed.title}
+              </span>
+            )}
+
+            {embed.url && (
+              <ExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0 text-zinc-500" />
+            )}
+          </div>
+        )}
+
+        {embed.description && (
+          <div className="mt-1 max-w-[490px] overflow-hidden">
+            <MarkdownRenderer
+              content={
+                embed.description
+              }
+              users={users}
+              channels={
+                channels
+              }
+              variant="embed"
+            />
+          </div>
+        )}
+
+        {embed.thumbnail &&
+          !embed.image && (
+            <a
+              href={
+                embed.url ||
+                embed.thumbnail
+              }
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-3 block w-fit"
+            >
+              <img
+                src={
+                  embed.thumbnail
+                }
+                alt={
+                  embed.title ||
+                  "Miniatura"
+                }
+                loading="lazy"
+                className="max-h-[160px] max-w-[220px] rounded-md object-cover"
+              />
+            </a>
+          )}
+
+        {embed.image && (
+          <a
+            href={
+              embed.url ||
+              embed.image
+            }
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-3 block"
+          >
+            <img
+              src={
+                embed.image
+              }
+              alt={
+                embed.title ||
+                "Imagem da prévia"
+              }
+              loading="lazy"
+              className="max-h-[320px] w-auto max-w-full rounded-md object-contain"
+            />
+          </a>
+        )}
+      </div>
+    </article>
+  );
 }

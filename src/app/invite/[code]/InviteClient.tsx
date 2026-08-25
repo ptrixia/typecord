@@ -1,14 +1,22 @@
 "use client";
+
 import {
   AlertCircle,
   Check,
   Hash,
   Loader2,
+  LogIn,
+  UserPlus,
   Users,
 } from "lucide-react";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { acceptGuildInvite } from "@/actions/invites";
 
@@ -21,7 +29,9 @@ type Props = {
 
   code: string;
 
+  authenticated?: boolean;
   alreadyMember?: boolean;
+  autoJoin?: boolean;
 
   guild?: {
     id: string;
@@ -34,10 +44,14 @@ type Props = {
 export default function InviteClient({
   status,
   code,
+  authenticated = false,
   alreadyMember = false,
+  autoJoin = false,
   guild,
 }: Props) {
   const router = useRouter();
+
+  const autoJoinAttempted = useRef(false);
 
   const [loading, setLoading] =
     useState(false);
@@ -45,7 +59,7 @@ export default function InviteClient({
   const [error, setError] =
     useState<string | null>(null);
 
-  async function accept() {
+  const accept = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -53,8 +67,8 @@ export default function InviteClient({
       const result =
         await acceptGuildInvite(code);
 
-      router.push(
-        `/channels/${result.guildId}`
+      router.replace(
+        `/channels/${result.guildId}`,
       );
 
       router.refresh();
@@ -62,9 +76,13 @@ export default function InviteClient({
       const message = err?.message;
 
       if (message === "AUTH_REQUIRED") {
+        const redirect =
+          `/invite/${encodeURIComponent(code)}?autoJoin=1`;
+
         router.push(
-          `/login?redirect=/invite/${encodeURIComponent(code)}`
+          `/login?redirect=${encodeURIComponent(redirect)}`,
         );
+
         return;
       }
 
@@ -80,7 +98,7 @@ export default function InviteClient({
 
       if (message === "INVITE_EXHAUSTED") {
         setError(
-          "Esse convite atingiu o limite de utilizações."
+          "Esse convite atingiu o limite de utilizações.",
         );
         return;
       }
@@ -89,17 +107,67 @@ export default function InviteClient({
         message === "DEFAULT_ROLE_NOT_FOUND"
       ) {
         setError(
-          "Não foi possível configurar sua entrada no servidor."
+          "Não foi possível configurar sua entrada no servidor.",
         );
         return;
       }
 
       setError(
-        "Não foi possível entrar no servidor."
+        "Não foi possível entrar no servidor.",
       );
     } finally {
       setLoading(false);
     }
+  }, [code, router]);
+
+  useEffect(() => {
+    if (status !== "valid") {
+      return;
+    }
+
+    if (!authenticated) {
+      return;
+    }
+
+    if (alreadyMember) {
+      return;
+    }
+
+    if (!autoJoin) {
+      return;
+    }
+
+    if (autoJoinAttempted.current) {
+      return;
+    }
+
+    autoJoinAttempted.current = true;
+
+    void accept();
+  }, [
+    status,
+    authenticated,
+    alreadyMember,
+    autoJoin,
+    accept,
+  ]);
+
+  function goToLogin() {
+    const redirect =
+      `/invite/${encodeURIComponent(code)}?autoJoin=1`;
+
+    router.push(
+      `/login?redirect=${encodeURIComponent(redirect)}`,
+    );
+  }
+
+  function goToRegister() {
+    const redirect =
+      `/invite/${encodeURIComponent(code)}?autoJoin=1`;
+
+    router.push(
+      `/register?redirect=${encodeURIComponent(redirect)}`,
+    );
   }
 
   if (status !== "valid") {
@@ -133,7 +201,10 @@ export default function InviteClient({
           </p>
 
           <button
-            onClick={() => router.push("/channels/@me")}
+            type="button"
+            onClick={() =>
+              router.push("/channels/@me")
+            }
             className="mt-6 h-11 w-full rounded-lg bg-indigo-600 font-semibold transition hover:bg-indigo-500"
           >
             Voltar para o Typecord
@@ -147,11 +218,16 @@ export default function InviteClient({
     return null;
   }
 
+  const automaticallyJoining =
+    authenticated &&
+    autoJoin &&
+    !alreadyMember;
+
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#0b0d0f] p-6 text-white">
       {guild.bannerUrl && (
         <div
-          className="pointer-events-none absolute inset-0 bg-cover bg-center opacity-20 blur-2xl"
+          className="pointer-events-none absolute inset-0 scale-110 bg-cover bg-center opacity-20 blur-3xl"
           style={{
             backgroundImage: `url("${guild.bannerUrl}")`,
           }}
@@ -211,30 +287,80 @@ export default function InviteClient({
 
             {alreadyMember ? (
               <button
+                type="button"
                 onClick={() =>
                   router.push(
-                    `/channels/${guild.id}`
+                    `/channels/${guild.id}`,
                   )
                 }
                 className="mt-7 flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 font-semibold transition hover:bg-indigo-500"
               >
                 <Check size={17} />
+
                 Abrir servidor
               </button>
+            ) : !authenticated ? (
+              <div className="mt-7 space-y-3">
+                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                  <p className="text-sm font-semibold text-zinc-100">
+                    Entre para aceitar o convite
+                  </p>
+
+                  <p className="mt-1 text-xs leading-relaxed text-zinc-400">
+                    Faça login ou crie uma conta.
+                    Depois disso, você entrará
+                    automaticamente em{" "}
+                    <strong className="font-semibold text-zinc-200">
+                      {guild.name}
+                    </strong>
+                    .
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={goToLogin}
+                  className="flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 font-semibold transition hover:bg-indigo-500"
+                >
+                  <LogIn size={17} />
+
+                  Entrar e aceitar convite
+                </button>
+
+                <button
+                  type="button"
+                  onClick={goToRegister}
+                  className="flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] font-semibold text-zinc-200 transition hover:bg-white/[0.08]"
+                >
+                  <UserPlus size={17} />
+
+                  Criar uma conta
+                </button>
+
+                <p className="text-center text-[11px] leading-relaxed text-zinc-500">
+                  Você voltará para este convite
+                  automaticamente após entrar.
+                </p>
+              </div>
             ) : (
               <button
-                disabled={loading}
+                type="button"
+                disabled={
+                  loading ||
+                  automaticallyJoining
+                }
                 onClick={accept}
                 className="mt-7 flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 font-semibold transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {loading ? (
+                {loading ||
+                automaticallyJoining ? (
                   <>
                     <Loader2
                       size={17}
                       className="animate-spin"
                     />
 
-                    Entrando...
+                    Entrando no servidor...
                   </>
                 ) : (
                   "Aceitar convite"
@@ -243,14 +369,14 @@ export default function InviteClient({
             )}
 
             {error && (
-              <p className="mt-4 rounded-lg bg-red-500/10 p-3 text-center text-sm text-red-400">
+              <p className="mt-4 rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-center text-sm text-red-400">
                 {error}
               </p>
             )}
 
             <p className="mt-5 text-center text-xs text-zinc-600">
-              Ao entrar, você concorda com as regras
-              deste servidor.
+              Ao entrar, você concorda com as
+              regras deste servidor.
             </p>
           </div>
         </div>

@@ -5,308 +5,566 @@ import { getCurrentUser } from "@/lib/current-user";
 import { pusherServer } from "@/lib/pusher";
 import { gatewayService } from "@/lib/gateway/GatewayService";
 
-export async function getMessages(channelId: string) {
-    if (!channelId) return [];
+type MessagePayload = {
+  content: string;
 
-    try {
-        const user = await getCurrentUser();
-        if (!user) throw new Error("Não autorizado.");
+  reply?: {
+    messageId: string;
+    author: string;
+    content: string;
+    avatarUrl?: string | null;
+  } | null;
 
-        const messages = await db.message.findMany({
-            where: {
-                channelId: channelId,
-                deleted: false,
-            },
-            include: {
-                member: {
-                    include: {
-                        user: true, 
-                    }
-                }
-            },
-            orderBy: {
-                createdAt: "asc",
-            },
-            take: 50,
-        });
+  attachments?: any[];
+  embeds?: any[];
+};
 
-        return messages.map((msg) => {
+function parseMessagePayload(rawContent: string): MessagePayload {
+  try {
+    const parsed = JSON.parse(rawContent);
 
-    const isWebhookMessage = msg.member.user.email === "webhook@typecord.bot";
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed)
+    ) {
+      return {
+        content:
+          typeof parsed.content === "string"
+            ? parsed.content
+            : "",
 
-    return {
-        id: msg.id,
-        author: msg.member.nickname || msg.member.user.globalName || msg.member.user.username,
-        authorColor: isWebhookMessage ? "text-rose-500" : "text-stone-700 dark:text-zinc-200",
-        avatarColor: isWebhookMessage ? "bg-rose-600" : "bg-indigo-500",
-        avatarUrl: msg.member.user.avatarUrl,
-        createdAt: msg.createdAt.toISOString(),
-        content: msg.content,
-        isWebhook: isWebhookMessage,
-    };
-});
-    } catch (error) {
-        console.error("[GET_MESSAGES_ERROR]", error);
-        return [];
+        reply:
+          parsed.reply &&
+          typeof parsed.reply === "object"
+            ? parsed.reply
+            : null,
+
+        attachments: Array.isArray(parsed.attachments)
+          ? parsed.attachments
+          : [],
+
+        embeds: Array.isArray(parsed.embeds)
+          ? parsed.embeds
+          : [],
+      };
     }
+  } catch {}
+
+  return {
+    content: rawContent,
+    reply: null,
+    attachments: [],
+    embeds: [],
+  };
+}
+
+function normalizeDatabaseEmbed(embed: any) {
+  let color: string | undefined;
+
+  if (typeof embed.color === "string") {
+    color = embed.color;
+  } else if (typeof embed.color === "number") {
+    color = `#${embed.color
+      .toString(16)
+      .padStart(6, "0")}`;
+  }
+
+  return {
+    url:
+      embed.url ??
+      undefined,
+
+    title:
+      embed.title ??
+      undefined,
+
+    description:
+      embed.description ??
+      undefined,
+
+    siteName:
+      embed.siteName ??
+      embed.authorName ??
+      undefined,
+
+    color:
+      color ??
+      "#5865F2",
+
+    image:
+      embed.image ??
+      embed.imageUrl ??
+      undefined,
+
+    thumbnail:
+      embed.thumbnail ??
+      embed.thumbnailUrl ??
+      undefined,
+  };
+}
+
+export async function getMessages(
+  channelId: string,
+) {
+  if (!channelId) {
+    return [];
+  }
+
+  try {
+    const user =
+      await getCurrentUser();
+
+    if (!user) {
+      throw new Error(
+        "Não autorizado.",
+      );
+    }
+
+    const messages =
+      await db.message.findMany({
+        where: {
+          channelId,
+          deleted: false,
+        },
+
+        include: {
+          member: {
+            include: {
+              user: {
+                include: {
+                  bot: {
+                    select: {
+                      id: true,
+                      verified: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+
+          attachments: true,
+          embeds: true,
+        },
+
+        orderBy: {
+          createdAt: "asc",
+        },
+
+        take: 50,
+      });
+
+    return messages.map(
+      (message) => {
+        const payload =
+          parseMessagePayload(
+            message.content,
+          );
+
+        const isWebhook =
+          message.member.user.email ===
+          "webhook@typecord.bot";
+
+        const isBot =
+          Boolean(
+            message.member.user.bot,
+          );
+
+        const isBotVerified =
+          Boolean(
+            message.member.user.bot
+              ?.verified,
+          );
+
+        const storedEmbeds =
+          message.embeds.map(
+            normalizeDatabaseEmbed,
+          );
+
+        return {
+          id: message.id,
+
+          author:
+            message.member.nickname ||
+            message.member.user
+              .globalName ||
+            message.member.user
+              .username,
+
+          authorId:
+            message.member.user.id,
+
+          authorColor:
+            isWebhook
+              ? "text-rose-500"
+              : "text-indigo-400",
+
+          avatarColor:
+            isWebhook
+              ? "bg-rose-600"
+              : "bg-indigo-600",
+
+          avatarUrl:
+            message.member.user
+              .avatarUrl,
+
+          createdAt:
+            message.createdAt.toISOString(),
+
+          content:
+            payload.content,
+
+          reply:
+            payload.reply ??
+            null,
+
+          attachments:
+            payload.attachments?.length
+              ? payload.attachments
+              : message.attachments,
+
+          embeds:
+            payload.embeds?.length
+              ? payload.embeds
+              : storedEmbeds,
+
+          isPending: false,
+
+          isWebhook,
+
+          isBot,
+
+          isBotVerified,
+        };
+      },
+    );
+  } catch (error) {
+    console.error(
+      "[GET_MESSAGES_ERROR]",
+      error,
+    );
+
+    return [];
+  }
 }
 
 export async function sendMessageAction(
-    channelId: string,
-    content: string
+  channelId: string,
+  content: string,
 ) {
-    if (!content || !content.trim()) {
-        throw new Error(
-            "A mensagem não pode estar vazia."
-        );
+  if (
+    !content ||
+    !content.trim()
+  ) {
+    throw new Error(
+      "A mensagem não pode estar vazia.",
+    );
+  }
+
+  if (!channelId) {
+    throw new Error(
+      "Canal inválido.",
+    );
+  }
+
+  try {
+    const user =
+      await getCurrentUser();
+
+    if (!user) {
+      throw new Error(
+        "Não autorizado.",
+      );
     }
 
-    if (!channelId) {
-        throw new Error(
-            "Canal inválido."
-        );
+    const channel =
+      await db.channel.findUnique({
+        where: {
+          id: channelId,
+        },
+
+        select: {
+          id: true,
+          guildId: true,
+        },
+      });
+
+    if (!channel) {
+      throw new Error(
+        "Canal não encontrado.",
+      );
     }
 
-    try {
-        const user =
-            await getCurrentUser();
+    const member =
+      await db.member.findUnique({
+        where: {
+          userId_guildId: {
+            userId:
+              user.id,
 
-        if (!user) {
-            throw new Error(
-                "Não autorizado."
-            );
-        }
+            guildId:
+              channel.guildId,
+          },
+        },
+      });
 
-        /*
-         * Descobre a guild do canal.
-         */
-        const channel =
-            await db.channel.findUnique({
-                where: {
-                    id: channelId,
-                },
+    if (!member) {
+      throw new Error(
+        "Você não é membro deste servidor.",
+      );
+    }
 
-                select: {
-                    id: true,
-                    guildId: true,
-                },
-            });
+    const payload =
+      parseMessagePayload(
+        content.trim(),
+      );
 
-        if (!channel) {
-            throw new Error(
-                "Canal não encontrado."
-            );
-        }
+    const newMessage =
+      await db.message.create({
+        data: {
+          content:
+            content.trim(),
 
-        /*
-         * Verifica se o usuário pertence
-         * à guild.
-         */
-        const member =
-            await db.member.findUnique({
-                where: {
-                    userId_guildId: {
-                        userId: user.id,
-                        guildId:
-                            channel.guildId,
-                    },
-                },
-            });
+          channelId,
 
-        if (!member) {
-            throw new Error(
-                "Você não é membro deste servidor."
-            );
-        }
+          memberId:
+            member.id,
+        },
 
-        /*
-         * Cria a mensagem.
-         */
-        const newMessage =
-            await db.message.create({
-                data: {
-                    content:
-                        content.trim(),
-
-                    channelId:
-                        channelId,
-
-                    memberId:
-                        member.id,
-                },
-
+        include: {
+          member: {
+            include: {
+              user: {
                 include: {
-                    member: {
-                        include: {
-                            user: true,
-                        },
+                  bot: {
+                    select: {
+                      id: true,
+                      verified: true,
                     },
+                  },
                 },
-            });
+              },
+            },
+          },
 
-        /*
-         * Dados utilizados pelo frontend.
-         */
-        const formattedMessage = {
-            id: newMessage.id,
+          attachments: true,
+          embeds: true,
+        },
+      });
 
-            author:
-                newMessage.member
-                    .nickname ||
-                newMessage.member.user
-                    .globalName ||
-                newMessage.member.user
-                    .username,
+    const isWebhook =
+      newMessage.member.user
+        .email ===
+      "webhook@typecord.bot";
 
-            authorColor:
-                "text-indigo-400",
+    const isBot =
+      Boolean(
+        newMessage.member.user.bot,
+      );
 
-            avatarColor:
-                "bg-indigo-600",
+    const isBotVerified =
+      Boolean(
+        newMessage.member.user.bot
+          ?.verified,
+      );
+
+    const databaseEmbeds =
+      newMessage.embeds.map(
+        normalizeDatabaseEmbed,
+      );
+
+    const formattedMessage = {
+      id:
+        newMessage.id,
+
+      author:
+        newMessage.member.nickname ||
+        newMessage.member.user
+          .globalName ||
+        newMessage.member.user
+          .username,
+
+      authorId:
+        newMessage.member.user.id,
+
+      authorColor:
+        isWebhook
+          ? "text-rose-500"
+          : "text-indigo-400",
+
+      avatarColor:
+        isWebhook
+          ? "bg-rose-600"
+          : "bg-indigo-600",
+
+      avatarUrl:
+        newMessage.member.user
+          .avatarUrl,
+
+      createdAt:
+        newMessage.createdAt.toISOString(),
+
+      content:
+        payload.content,
+
+      reply:
+        payload.reply ??
+        null,
+
+      attachments:
+        payload.attachments?.length
+          ? payload.attachments
+          : newMessage.attachments,
+
+      embeds:
+        payload.embeds?.length
+          ? payload.embeds
+          : databaseEmbeds,
+
+      isPending:
+        false,
+
+      isWebhook,
+
+      isBot,
+
+      isBotVerified,
+    };
+
+    await pusherServer.trigger(
+      `channel-${channelId}`,
+      "new-message",
+      formattedMessage,
+    );
+
+    const botMembers =
+      await db.member.findMany({
+        where: {
+          guildId:
+            channel.guildId,
+
+          user: {
+            bot: {
+              isNot: null,
+            },
+          },
+        },
+
+        select: {
+          user: {
+            select: {
+              id: true,
+
+              bot: {
+                select: {
+                  id: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+    const botIds =
+      botMembers
+        .map(
+          (item) =>
+            item.user.bot?.id,
+        )
+        .filter(
+          (
+            id,
+          ): id is string =>
+            Boolean(id),
+        );
+
+    console.log(
+      `[GATEWAY] Mensagem ${newMessage.id}`,
+    );
+
+    console.log(
+      `[GATEWAY] Guild: ${channel.guildId}`,
+    );
+
+    console.log(
+      `[GATEWAY] Bots encontrados: ${botIds.length}`,
+    );
+
+    if (
+      botIds.length > 0
+    ) {
+      await gatewayService.broadcast(
+        botIds,
+        "MESSAGE_CREATE",
+        {
+          id:
+            newMessage.id,
+
+          content:
+            payload.content,
+
+          guildId:
+            channel.guildId,
+
+          channelId,
+
+          author: {
+            id:
+              newMessage.member.user
+                .id,
+
+            username:
+              newMessage.member.user
+                .username,
+
+            globalName:
+              newMessage.member.user
+                .globalName,
 
             avatarUrl:
-                newMessage.member.user
-                    .avatarUrl,
+              newMessage.member.user
+                .avatarUrl,
+          },
 
-            createdAt: newMessage.createdAt.toISOString(),
+          isBot,
 
-            content:
-                newMessage.content,
-        };
+          isBotVerified,
 
-        /*
-         * =====================================
-         * FRONTEND
-         * =====================================
-         */
-        await pusherServer.trigger(
-            `channel-${channelId}`,
-            "new-message",
-            formattedMessage
-        );
+          isWebhook,
 
-       const botMembers = await db.member.findMany({
-    where: {
-        guildId: channel.guildId,
+          attachments:
+            payload.attachments ??
+            [],
 
-        user: {
-            bot: {
-                isNot: null,
-            },
+          embeds:
+            payload.embeds ??
+            [],
+
+          createdAt:
+            newMessage.createdAt.toISOString(),
+
+          replyToId:
+            payload.reply
+              ?.messageId ??
+            null,
+
+          reply:
+            payload.reply ??
+            null,
         },
-    },
-
-    select: {
-        user: {
-            select: {
-                id: true,
-
-                bot: {
-                    select: {
-                        id: true,
-                    },
-                },
-            },
-        },
-    },
-});
-        /*
-         * Pega os IDs dos bots.
-         */
-        const botIds =
-            botMembers
-                .map(
-                    (member) =>
-                        member.user.bot
-                            ?.id
-                )
-                .filter(
-                    (
-                        id
-                    ): id is string =>
-                        Boolean(id)
-                );
-
-        console.log(
-            `[GATEWAY] Mensagem ${newMessage.id}`
-        );
-
-        console.log(
-            `[GATEWAY] Guild: ${channel.guildId}`
-        );
-
-        console.log(
-            `[GATEWAY] Bots encontrados: ${botIds.length}`
-        );
-
-        /*
-         * Envia MESSAGE_CREATE para
-         * todos os bots da guild.
-         */
-        if (botIds.length > 0) {
-            await gatewayService.broadcast(
-                botIds,
-                "MESSAGE_CREATE",
-                {
-                    id: newMessage.id,
-
-                    content:
-                        newMessage.content,
-
-                    guildId:
-                        channel.guildId,
-
-                    channelId:
-                        channelId,
-
-                    author: {
-                        id:
-                            newMessage
-                                .member
-                                .user
-                                .id,
-
-                        username:
-                            newMessage
-                                .member
-                                .user
-                                .username,
-
-                        globalName:
-                            newMessage
-                                .member
-                                .user
-                                .globalName,
-
-                        avatarUrl:
-                            newMessage
-                                .member
-                                .user
-                                .avatarUrl,
-                    },
-
-                    attachments: [],
-
-                    createdAt:
-                        newMessage.createdAt
-                            .toISOString(),
-
-                    replyToId:
-                        null,
-                }
-            );
-        }
-
-        return formattedMessage;
-
-    } catch (error) {
-        console.error(
-            "[SEND_MESSAGE_ERROR]",
-            error
-        );
-
-        throw new Error(
-            "Não foi possível enviar a mensagem."
-        );
+      );
     }
+
+    return formattedMessage;
+  } catch (error) {
+    console.error(
+      "[SEND_MESSAGE_ERROR]",
+      error,
+    );
+
+    throw new Error(
+      "Não foi possível enviar a mensagem.",
+    );
+  }
 }

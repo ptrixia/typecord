@@ -37,24 +37,54 @@ export async function getUserGuilds(): Promise<PartialGuild[]> {
 
 export async function getGuildById(guildId: string) {
   const u = await getCurrentUser();
-  if (!u) return null;
+
+  if (!u) {
+    return null;
+  }
 
   const member = await db.member.findUnique({
-    where: { userId_guildId: { userId: u.id, guildId } },
+    where: {
+      userId_guildId: {
+        userId: u.id,
+        guildId,
+      },
+    },
   });
-  if (!member) return null;
+
+  if (!member) {
+    return null;
+  }
 
   return db.guild.findUnique({
-    where: { id: guildId },
+    where: {
+      id: guildId,
+    },
     include: {
-      channels: { orderBy: { position: "asc" } },
-      categories: {
-        orderBy: { position: "asc" },
-        include: {
-          channels: { orderBy: { position: "asc" } },
+      channels: {
+        orderBy: {
+          position: "asc",
         },
       },
-      roles: { orderBy: { position: "desc" } },
+
+      categories: {
+        orderBy: {
+          position: "asc",
+        },
+        include: {
+          channels: {
+            orderBy: {
+              position: "asc",
+            },
+          },
+        },
+      },
+
+      roles: {
+        orderBy: {
+          position: "desc",
+        },
+      },
+
       members: {
         include: {
           user: {
@@ -65,16 +95,22 @@ export async function getGuildById(guildId: string) {
               avatarUrl: true,
               status: true,
               bannerUrl: true,
+              createdAt: true,
+              bio: true,
+
               bot: {
                 select: {
-                    verified: true
-                }
+                  verified: true,
+                },
               },
-              createdAt: true,
-              bio: true
             },
           },
-          roles: { orderBy: { position: "desc" } },
+
+          roles: {
+            orderBy: {
+              position: "desc",
+            },
+          },
         },
       },
     },

@@ -23,6 +23,8 @@ export default async function ChannelsPage({ params }: ChannelsPageProps) {
   if (!isDirectMessages) {
     currentGuild = await getGuildById(id);
 
+    // console.log(currentGuild)
+
     if (currentGuild && currentUser) {
       currentMember = currentGuild.members.find(
         (m: any) => m.userId === currentUser.id

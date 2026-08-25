@@ -682,7 +682,7 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
                 </div>
               </div>
 
-              <div>
+              {/* <div>
                 <FieldLabel>Nome de usuário</FieldLabel>
                 <div className="relative">
                   <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-stone-400">
@@ -706,7 +706,7 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
                 <p className="mt-1 text-[10px] text-stone-500 dark:text-zinc-500">
                   2–32 caracteres. Letras minúsculas, números, ponto e underline.
                 </p>
-              </div>
+              </div> */}
 
               <div>
                 <FieldLabel>Sobre mim</FieldLabel>
