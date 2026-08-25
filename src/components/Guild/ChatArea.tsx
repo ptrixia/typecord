@@ -25,6 +25,12 @@ import SearchCommand from "../SearchCommand";
 import MessageItem, { MessageData } from "../Message/MessageItem";
 import { sendMessageAction } from "@/actions/messages";
 import { pusherClient } from "@/lib/pusher";
+import {
+  onGatewayEvent,
+  subscribeChannel,
+  unsubscribeChannel,
+  sendTyping,
+} from "@/lib/realtime/gateway-client";
 
 type ChatAreaMode = "guild" | "direct";
 
@@ -560,24 +566,26 @@ export default function ChatArea({
     useEffect(() => {
         if (!channel?.id) return;
 
+        let disposed = false;
+
         setMessages([]);
         setHasMore(true);
         setTypingUsers([]);
-        fetchMessages();
+        void fetchMessages();
 
-        const channelName = isDirect
-            ? `direct-conversation-${channel.id}`
-            : `channel-${channel.id}`;
+        const appendMessage = (incoming: any) => {
+            const rawMessage =
+                incoming?.message ??
+                incoming?.data?.message ??
+                incoming;
 
-        const pusherChannel = pusherClient.subscribe(channelName);
-
-        const handleNewMessage = (incoming: any) => {
-            const newMessage = normalizeMessage(incoming);
+            const newMessage = normalizeMessage(rawMessage);
 
             setMessages((prev) => {
                 if (
                     prev.some(
-                        (message) => message.id === newMessage.id,
+                        (message) =>
+                            message.id === newMessage.id,
                     )
                 ) {
                     return prev;
@@ -593,103 +601,308 @@ export default function ChatArea({
             });
         };
 
-        const handleTyping = (data: {
-            userName: string;
+        const applyMessageUpdate = (incoming: any) => {
+            const rawMessage =
+                incoming?.message ??
+                incoming?.data?.message ??
+                incoming;
+
+            if (!rawMessage?.id) return;
+
+            const updatedMessage =
+                normalizeMessage(rawMessage);
+
+            setMessages((prev) =>
+                prev.map((message) =>
+                    message.id === updatedMessage.id
+                        ? {
+                              ...message,
+                              ...updatedMessage,
+                          }
+                        : message,
+                ),
+            );
+        };
+
+        const applyMessageDelete = (incoming: any) => {
+            const messageId = String(
+                incoming?.messageId ??
+                    incoming?.id ??
+                    incoming?.data?.messageId ??
+                    "",
+            );
+
+            if (!messageId) return;
+
+            setMessages((prev) =>
+                prev.map((message) =>
+                    message.id === messageId
+                        ? {
+                              ...message,
+                              content: "",
+                              deleted: true,
+                          }
+                        : message,
+                ),
+            );
+        };
+
+        const showTyping = (data: {
+            userName?: string;
+            username?: string;
+            globalName?: string | null;
             userId?: string;
+            expiresAt?: number;
         }) => {
+            const userId = String(data.userId ?? "");
+            const userName =
+                data.globalName ||
+                data.userName ||
+                data.username ||
+                "Usuário";
+
             if (
-                data.userId === currentUserId ||
-                data.userName === currentUserName
+                userId === currentUserId ||
+                userName === currentUserName
             ) {
                 return;
             }
 
-            setTypingUsers((prev) => {
-                if (prev.includes(data.userName)) return prev;
-                return [...prev, data.userName];
-            });
+            setTypingUsers((prev) =>
+                prev.includes(userName)
+                    ? prev
+                    : [...prev, userName],
+            );
+
+            const timeout = Math.max(
+                500,
+                Math.min(
+                    10_000,
+                    Number(data.expiresAt ?? Date.now() + 3_000) -
+                        Date.now(),
+                ),
+            );
 
             window.setTimeout(() => {
                 setTypingUsers((prev) =>
                     prev.filter(
-                        (name) => name !== data.userName,
+                        (name) => name !== userName,
                     ),
                 );
-            }, 3000);
+            }, timeout);
         };
-
-        const handleMessagesChanged = () => {
-            if (!isDirect) return;
-
-            fetch(
-                `/api/direct-messages/conversations/${channel.id}/messages?limit=50`,
-                { cache: "no-store" },
-            )
-                .then((response) => response.json())
-                .then((data) => {
-                    if (
-                        !data?.success ||
-                        !Array.isArray(data.messages)
-                    ) {
-                        return;
-                    }
-
-                    const latest =
-                        data.messages.map(normalizeMessage);
-
-                    setMessages((prev) => {
-                        const map =
-                            new Map<string, MessageData>();
-
-                        for (const message of prev) {
-                            map.set(message.id, message);
-                        }
-
-                        for (const message of latest) {
-                            map.set(message.id, message);
-                        }
-
-                        return Array.from(map.values()).sort(
-                            (a, b) =>
-                                new Date(
-                                    a.createdAt,
-                                ).getTime() -
-                                new Date(
-                                    b.createdAt,
-                                ).getTime(),
-                        );
-                    });
-                })
-                .catch(() => {});
-        };
-
-        pusherChannel.bind(
-            "new-message",
-            handleNewMessage,
-        );
-        pusherChannel.bind("typing", handleTyping);
 
         if (isDirect) {
+            const channelName =
+                `direct-conversation-${channel.id}`;
+
+            const pusherChannel =
+                pusherClient.subscribe(channelName);
+
+            const handleMessagesChanged = () => {
+                fetch(
+                    `/api/direct-messages/conversations/${channel.id}/messages?limit=50`,
+                    { cache: "no-store" },
+                )
+                    .then((response) => response.json())
+                    .then((data) => {
+                        if (
+                            !data?.success ||
+                            !Array.isArray(data.messages)
+                        ) {
+                            return;
+                        }
+
+                        const latest =
+                            data.messages.map(
+                                normalizeMessage,
+                            );
+
+                        setMessages((prev) => {
+                            const map =
+                                new Map<
+                                    string,
+                                    MessageData
+                                >();
+
+                            for (const message of prev) {
+                                map.set(
+                                    message.id,
+                                    message,
+                                );
+                            }
+
+                            for (const message of latest) {
+                                map.set(
+                                    message.id,
+                                    message,
+                                );
+                            }
+
+                            return Array.from(
+                                map.values(),
+                            ).sort(
+                                (a, b) =>
+                                    new Date(
+                                  a.createdAt ?? 0,
+                                    ).getTime() -
+                                    new Date(
+                                  b.createdAt ?? 0,
+                                    ).getTime(),
+                            );
+                        });
+                    })
+                    .catch(() => {});
+            };
+
+            pusherChannel.bind(
+                "new-message",
+                appendMessage,
+            );
+            pusherChannel.bind(
+                "typing",
+                showTyping,
+            );
             pusherChannel.bind(
                 "messages-changed",
                 handleMessagesChanged,
             );
+
+            return () => {
+                disposed = true;
+
+                pusherChannel.unbind(
+                    "new-message",
+                    appendMessage,
+                );
+                pusherChannel.unbind(
+                    "typing",
+                    showTyping,
+                );
+                pusherChannel.unbind(
+                    "messages-changed",
+                    handleMessagesChanged,
+                );
+
+                pusherClient.unsubscribe(
+                    channelName,
+                );
+            };
         }
 
+        const removeCreate =
+            onGatewayEvent<any>(
+                "MESSAGE_CREATE",
+                ({ data }) => {
+                    const eventChannelId =
+                        data?.channelId ??
+                        data?.message?.channelId ??
+                        null;
+
+                    if (
+                        eventChannelId &&
+                        String(eventChannelId) !==
+                            String(channel.id)
+                    ) {
+                        return;
+                    }
+
+                    const incomingMessage =
+                        data?.message ??
+                        data;
+
+                    if (!incomingMessage?.id) {
+                        console.warn(
+                            "[CHAT_MESSAGE_CREATE_INVALID]",
+                            data,
+                        );
+                        return;
+                    }
+
+                    appendMessage(
+                        incomingMessage,
+                    );
+                },
+            );
+
+        const removeUpdate =
+            onGatewayEvent<any>(
+                "MESSAGE_UPDATE",
+                ({ data }) => {
+                    if (
+                        data?.channelId &&
+                        String(data.channelId) !==
+                            String(channel.id)
+                    ) {
+                        return;
+                    }
+
+                    applyMessageUpdate(data);
+                },
+            );
+
+        const removeDelete =
+            onGatewayEvent<any>(
+                "MESSAGE_DELETE",
+                ({ data }) => {
+                    if (
+                        data?.channelId &&
+                        String(data.channelId) !==
+                            String(channel.id)
+                    ) {
+                        return;
+                    }
+
+                    applyMessageDelete(data);
+                },
+            );
+
+        const removeTyping =
+            onGatewayEvent<any>(
+                "TYPING_START",
+                ({ data }) => {
+                    if (
+                        String(data?.channelId ?? "") !==
+                        String(channel.id)
+                    ) {
+                        return;
+                    }
+
+                    showTyping(data);
+                },
+            );
+
+        void subscribeChannel(
+            String(channel.id),
+        )
+            .then(() => {
+                if (!disposed) {
+                    console.log(
+                        "[CHAT_GATEWAY_READY]",
+                        channel.id,
+                    );
+                }
+            })
+            .catch((error) => {
+                if (!disposed) {
+                    console.error(
+                        "[CHAT_GATEWAY_SUBSCRIBE]",
+                        error,
+                    );
+                }
+            });
+
         return () => {
-            pusherChannel.unbind(
-                "new-message",
-                handleNewMessage,
+            disposed = true;
+
+            removeCreate();
+            removeUpdate();
+            removeDelete();
+            removeTyping();
+
+            void unsubscribeChannel(
+                String(channel.id),
             );
-            pusherChannel.unbind(
-                "typing",
-                handleTyping,
-            );
-            pusherChannel.unbind(
-                "messages-changed",
-                handleMessagesChanged,
-            );
-            pusherClient.unsubscribe(channelName);
         };
     }, [
         channel?.id,
@@ -819,27 +1032,28 @@ export default function ChatArea({
         ) {
             lastTypedRef.current = now;
 
-            const typingUrl = isDirect
-                ? "/api/direct-messages/typing"
-                : "/api/typing";
-
-            const typingBody = isDirect
-                ? {
-                      conversationId: channel.id,
-                      userName: currentUserName,
-                  }
-                : {
-                      channelId: channel.id,
-                      userName: currentUserName,
-                  };
-
-            fetch(typingUrl, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify(typingBody),
-            }).catch(() => {});
+            if (isDirect) {
+                fetch(
+                    "/api/direct-messages/typing",
+                    {
+                        method: "POST",
+                        headers: {
+                            "Content-Type":
+                                "application/json",
+                        },
+                        body: JSON.stringify({
+                            conversationId:
+                                channel.id,
+                            userName:
+                                currentUserName,
+                        }),
+                    },
+                ).catch(() => {});
+            } else {
+                void sendTyping(
+                    String(channel.id),
+                ).catch(() => {});
+            }
         }
     };
 
@@ -1135,12 +1349,39 @@ export default function ChatArea({
       embeds,
     };
 
-    await sendMessageAction(
-      channel.id,
-      JSON.stringify(
-        payload,
-      ),
-    );
+    const sent =
+      await sendMessageAction(
+        channel.id,
+        JSON.stringify(
+          payload,
+        ),
+      );
+
+    const normalizedSent =
+      normalizeMessage(sent);
+
+    setMessages((prev) => {
+      if (
+        prev.some(
+          (message) =>
+            message.id ===
+            normalizedSent.id,
+        )
+      ) {
+        return prev;
+      }
+
+      return [
+        ...prev,
+        normalizedSent,
+      ];
+    });
+
+    requestAnimationFrame(() => {
+      messagesEndRef.current?.scrollIntoView({
+        behavior: "smooth",
+      });
+    });
   } catch (error) {
     console.error(
       "[CHAT_MESSAGE_SEND]",

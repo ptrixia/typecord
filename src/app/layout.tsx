@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { ThemeProvider } from "@/components/theme-provider";
+import "@livekit/components-styles";
 import "./globals.css";
 
 const APP_URL =

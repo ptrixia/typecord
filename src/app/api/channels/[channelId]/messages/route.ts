@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "node:crypto";
 
 import { db } from "@/lib/db";
-import { pusherServer } from "@/lib/pusher";
+
 import { gatewayService } from "@/lib/gateway/GatewayService";
+import { emitToChannel } from "@/lib/realtime/emitter";
 
 interface RouteContext {
     params: Promise<{
@@ -954,11 +955,26 @@ export async function POST(
             isBotVerified,
         };
 
-        await pusherServer.trigger(
-            `channel-${channelId}`,
-            "new-message",
-            formattedMessage,
-        );
+        try {
+            await emitToChannel(
+                channelId,
+                "MESSAGE_CREATE",
+                {
+                    guildId: channel.guildId,
+                    channelId,
+                    message: formattedMessage,
+                },
+            );
+
+            console.log(
+                `[BOT_MESSAGE_REALTIME] MESSAGE_CREATE ${message.id} -> channel ${channelId}`,
+            );
+        } catch (error) {
+            console.error(
+                "[BOT_MESSAGE_REALTIME_ERROR]",
+                error,
+            );
+        }
 
         const botMembers =
             await db.member.findMany({

@@ -18,7 +18,6 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { name, type } = channelSchema.parse(body);
 
-    // Verifica se o usuário pertence à guilda e tem permissão (neste exemplo básico, se é admin/dono)
     const guild = await db.guild.update({
       where: {
         id: guildId,

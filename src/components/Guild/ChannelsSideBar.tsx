@@ -1,20 +1,27 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Hash, Plus, Volume2, ChevronDown, Settings, LogOut, Check, BadgeCheck } from "lucide-react";
+import { Hash, Plus, Volume2, ChevronDown, Settings, LogOut, Check, BadgeCheck, PhoneOff } from "lucide-react";
 import { useRouter } from "next/navigation";
 import UserProfileSideBar from "../UserProfileSideBar";
 import Modal from "../Modal";
 import { createChannel } from "@/actions/channels";
 import GuildSettingsModal from "./GuildSettingsModal";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
+import { onGatewayEvent } from "@/lib/realtime/gateway-client";
+import {
+  Permissions,
+  hasPermission,
+  normalizePermissions,
+} from "@/lib/permissions";
 
 interface ChannelsSidebarProps {
   guild: any;
   activeChannel: any;
   onSelectChannel: (channel: any) => void;
   activeVoiceChannel?: any;
-  onJoinVoice?: (channel: any, token: string) => void;
+  onJoinVoice?: (channel: any) => void;
+  onLeaveVoice?: () => void;
   currentMember: any;
 }
 
@@ -37,12 +44,11 @@ export default function ChannelsSidebar({
   onSelectChannel,
   activeVoiceChannel,
   onJoinVoice,
+  onLeaveVoice,
   currentMember,
 }: ChannelsSidebarProps) {
   const router = useRouter();
 
-  console.log('VERIFIED GUILD', guild)
-  
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isCreateChannelModalOpen, setIsCreateChannelModalOpen] = useState(false);
@@ -50,6 +56,7 @@ export default function ChannelsSidebar({
   const [channelName, setChannelName] = useState("");
   const [channelType, setChannelType] = useState<"GUILD_TEXT" | "GUILD_VOICE">("GUILD_TEXT");
   const [isLoading, setIsLoading] = useState(false);
+  const [voiceUsers, setVoiceUsers] = useState<Record<string, string[]>>({});
 
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -65,11 +72,37 @@ export default function ChannelsSidebar({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const isOwner = guild.ownerId === currentMember?.userId;
-  const hasAdminRole = currentMember?.roles?.some((r: any) => 
-    r.permissions.includes("8") || r.permissions.includes("ADMIN") || r.permissions.includes("MANAGE_CHANNELS")
-  );
-  const canManageChannels = isOwner || hasAdminRole;
+  const isOwner =
+    String(guild?.ownerId ?? "") ===
+    String(
+      currentMember?.userId ??
+        currentMember?.user?.id ??
+        "",
+    );
+
+  const memberPermissions =
+    (currentMember?.roles ?? []).reduce(
+      (permissions: bigint, role: any) =>
+        permissions |
+        normalizePermissions(
+          role?.permissions,
+        ),
+      0n,
+    );
+
+  const canManageChannels =
+    isOwner ||
+    hasPermission(
+      memberPermissions,
+      Permissions.MANAGE_CHANNELS,
+    );
+
+  const canManageGuild =
+    isOwner ||
+    hasPermission(
+      memberPermissions,
+      Permissions.MANAGE_GUILD,
+    );
 
   const handleCreateChannel = async () => {
     if (!channelName.trim()) return;
@@ -86,23 +119,109 @@ export default function ChannelsSidebar({
     }
   };
 
-  const handleChannelClick = async (channel: any) => {
+  const handleChannelClick = (channel: any) => {
     if (channel.type === "GUILD_VOICE") {
-      try {
-        const response = await fetch(`/api/livekit?roomName=${channel.id}`);
-        const data = await response.json();
-
-        if (data.token && onJoinVoice) {
-          onJoinVoice(channel, data.token);
-        } else {
-          alert("Não foi possível conectar ao canal de voz.");
-        }
-      } catch (error) {
-        console.error("Erro ao conectar na voz:", error);
-      }
-    } else {
-      onSelectChannel(channel);
+      onJoinVoice?.(channel);
+      return;
     }
+
+    onSelectChannel(channel);
+  };
+
+  useEffect(() => {
+    if (!guild?.id) return;
+
+    let cancelled = false;
+
+    fetch(
+      `/api/realtime/voice-state?guildId=${encodeURIComponent(String(guild.id))}`,
+      {
+        cache: "no-store",
+      },
+    )
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return response.json();
+      })
+      .then((data) => {
+        if (
+          cancelled ||
+          !data?.success ||
+          !data?.channels
+        ) {
+          return;
+        }
+
+        setVoiceUsers(data.channels);
+      })
+      .catch((error) => {
+        console.error(
+          "[VOICE_STATE_INITIAL_LOAD]",
+          error,
+        );
+      });
+
+    const removeVoiceListener =
+      onGatewayEvent<any>(
+        "VOICE_STATE_UPDATE",
+        ({ data }) => {
+          if (
+            String(data?.guildId ?? "") !==
+            String(guild.id)
+          ) {
+            return;
+          }
+
+          const channelId =
+            String(data?.channelId ?? "");
+          const userId =
+            String(data?.userId ?? "");
+
+          if (!channelId || !userId) {
+            return;
+          }
+
+          setVoiceUsers((current) => {
+            const next = {
+              ...current,
+            };
+
+            const users = new Set(
+              next[channelId] ?? [],
+            );
+
+            if (data.connected) {
+              for (const [otherChannelId, ids] of Object.entries(next)) {
+                if (otherChannelId === channelId) continue;
+                next[otherChannelId] = ids.filter(
+                  (id) => id !== userId,
+                );
+              }
+
+              users.add(userId);
+            } else {
+              users.delete(userId);
+            }
+
+            next[channelId] = Array.from(users);
+
+            return next;
+          });
+        },
+      );
+
+    return () => {
+      cancelled = true;
+      removeVoiceListener();
+    };
+  }, [guild?.id]);
+
+  const getVoiceMember = (userId: string) => {
+    return guild?.members?.find(
+      (member: any) =>
+        String(member?.user?.id ?? member?.userId ?? "") ===
+        String(userId),
+    );
   };
 
   return (
@@ -125,7 +244,7 @@ export default function ChannelsSidebar({
         {/* GRUPO: BADGE + NOME JUNTOS */}
         <div className="flex items-center gap-2 overflow-hidden">
           {guild.verified && (
-            <Tooltip delayDuration={200}>
+            <Tooltip>
               <TooltipTrigger className="flex shrink-0 cursor-default items-center focus:outline-none">
                 <BadgeCheck
                   className="h-5 w-5 fill-[#2FFA73] text-white dark:text-[#111214]"
@@ -191,7 +310,7 @@ export default function ChannelsSidebar({
 
   {isDropdownOpen && (
     <div className="absolute left-2 right-2 top-full z-[9999] mt-2 rounded-md border border-stone-200 bg-white p-2 shadow-2xl dark:border-zinc-800 dark:bg-[#111214]">
-      {canManageChannels && (
+      {canManageGuild && (
         <button
           onClick={() => {
             setIsSettingsModalOpen(true);
@@ -248,29 +367,90 @@ export default function ChannelsSidebar({
           <div className="mb-4 space-y-0.5 mt-1">
             {guild.channels?.map((channel: any) => {
               const isVoice = channel.type === "GUILD_VOICE";
-              const isActive = isVoice 
-                ? activeVoiceChannel?.id === channel.id 
+              const isActive = isVoice
+                ? activeVoiceChannel?.id === channel.id
                 : activeChannel?.id === channel.id;
+              const connectedUserIds =
+                voiceUsers[String(channel.id)] ?? [];
 
               return (
-                <div
-                  key={channel.id}
-                  onClick={() => handleChannelClick(channel)}
-                  className={`
-                    flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition-colors
-                    ${isActive 
-                      ? "bg-stone-300 text-stone-900 dark:bg-zinc-800 dark:text-zinc-100" 
-                      : "text-stone-600 hover:bg-stone-200 hover:text-stone-900 dark:text-zinc-400 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-200"
-                    }
-                  `}
-                >
-                  {isVoice ? <Volume2 className="h-4 w-4 shrink-0 text-emerald-500" /> : <Hash className="h-4 w-4 shrink-0" />}
-                  <span className="truncate text-sm font-medium">{channel.name}</span>
+                <div key={channel.id}>
+                  <button
+                    type="button"
+                    onClick={() => handleChannelClick(channel)}
+                    className={`
+                      flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors
+                      ${
+                        isActive
+                          ? "bg-stone-300 text-stone-900 dark:bg-zinc-800 dark:text-zinc-100"
+                          : "text-stone-600 hover:bg-stone-200 hover:text-stone-900 dark:text-zinc-400 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-200"
+                      }
+                    `}
+                  >
+                    {isVoice ? (
+                      <Volume2 className="h-4 w-4 shrink-0 text-emerald-500" />
+                    ) : (
+                      <Hash className="h-4 w-4 shrink-0" />
+                    )}
+
+                    <span className="truncate text-sm font-medium">
+                      {channel.name}
+                    </span>
+                  </button>
+
+                  {isVoice && connectedUserIds.length > 0 && (
+                    <div className="ml-7 mt-0.5 space-y-0.5">
+                      {connectedUserIds.map((userId) => {
+                        const member =
+                          getVoiceMember(userId);
+                        const user =
+                          member?.user ?? member;
+
+                        return (
+                          <div
+                            key={`${channel.id}:${userId}`}
+                            className="flex min-w-0 items-center gap-2 rounded px-2 py-1 text-xs text-stone-500 dark:text-zinc-400"
+                          >
+                            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+                            <span className="truncate">
+                              {user?.globalName ||
+                                user?.username ||
+                                "Usuário"}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               );
             })}
           </div>
         </div>
+
+        {activeVoiceChannel && (
+          <div className="mx-2 mb-2 rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                  Voz conectada
+                </div>
+                <div className="truncate text-xs text-stone-600 dark:text-zinc-400">
+                  {activeVoiceChannel.name}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={onLeaveVoice}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-red-500 transition hover:bg-red-500/10"
+                title="Desconectar da voz"
+              >
+                <PhoneOff className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
 
         <UserProfileSideBar
   user={

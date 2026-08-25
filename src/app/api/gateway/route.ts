@@ -1,211 +1,173 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import crypto from "node:crypto";
 
-import {
-  extractBotToken,
-} from "@/lib/bots/token";
-
-import {
-  authenticateBot,
-} from "@/lib/gateway/authenticate";
-
-import {
-  createGatewaySession,
-} from "@/lib/gateway/session";
-
-import {
-  gatewayService,
-} from "@/lib/gateway/GatewayService";
-
-import { db as prisma } from "@/lib/db";
+import { db } from "@/lib/db";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-export async function GET(
-  request: Request,
+const SESSION_TTL_MS = 15 * 60 * 1000;
+
+function json(
+  body: Record<string, unknown>,
+  status = 200,
 ) {
+  return NextResponse.json(body, {
+    status,
+    headers: {
+      "Cache-Control": "no-store, no-cache, must-revalidate",
+    },
+  });
+}
+
+function sha256(value: string) {
+  return crypto
+    .createHash("sha256")
+    .update(value)
+    .digest("hex");
+}
+
+export async function GET(request: NextRequest) {
   try {
-    // --------------------------------------------------
-    // 1. Extrair token
-    // --------------------------------------------------
+    const authorization = request.headers.get("authorization");
 
-    const token =
-      extractBotToken(request);
-
-    if (!token) {
-      return NextResponse.json(
+    if (!authorization?.startsWith("Bot ")) {
+      return json(
         {
-          code: "INVALID_TOKEN",
-          message:
-            "Bot token ausente.",
+          success: false,
+          message: "Authorization inválido.",
         },
-        {
-          status: 401,
-        },
+        401,
       );
     }
 
-    // --------------------------------------------------
-    // 2. Autenticar bot
-    // --------------------------------------------------
+    const botToken = authorization.slice(4).trim();
 
-    const bot =
-      await authenticateBot(token);
+    if (!botToken) {
+      return json(
+        {
+          success: false,
+          message: "Token do bot ausente.",
+        },
+        401,
+      );
+    }
+
+    const tokenHash = sha256(botToken);
+
+    const bot = await db.bot.findUnique({
+      where: {
+        tokenHash,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            username: true,
+            globalName: true,
+            avatarUrl: true,
+          },
+        },
+      },
+    });
 
     if (!bot) {
-      return NextResponse.json(
+      return json(
         {
-          code: "INVALID_TOKEN",
-          message:
-            "Token de bot inválido.",
+          success: false,
+          message: "Token do bot inválido.",
         },
-        {
-          status: 401,
-        },
+        401,
       );
     }
-
-    // --------------------------------------------------
-    // 3. Verificar se o bot está desativado
-    // --------------------------------------------------
 
     if (bot.disabled) {
-      return NextResponse.json(
+      return json(
         {
-          code: "BOT_DISABLED",
-          message:
-            "Este bot está desativado.",
+          success: false,
+          message: "Este bot está desativado.",
         },
-        {
-          status: 403,
-        },
+        403,
       );
     }
 
-    // --------------------------------------------------
-    // 4. Criar sessão do Gateway
-    // --------------------------------------------------
-
-    const session =
-      await createGatewaySession(
-        bot.id,
-      );
-
-    // --------------------------------------------------
-    // 5. Descobrir guilds onde o USUÁRIO DO BOT
-    // está presente
-    //
-    // IMPORTANTE:
-    //
-    // bot.ownerId = humano que criou o bot
-    // bot.userId  = usuário que representa o bot
-    //
-    // Para guilds precisamos usar bot.userId.
-    // --------------------------------------------------
-
-    const memberships =
-      await prisma.member.findMany({
-        where: {
-          userId: bot.userId,
-        },
-
-        select: {
-          guild: {
-            select: {
-              id: true,
-              name: true,
-              iconUrl: true,
-            },
+    const memberships = await db.member.findMany({
+      where: {
+        userId: bot.userId,
+      },
+      select: {
+        guild: {
+          select: {
+            id: true,
+            name: true,
+            iconUrl: true,
           },
+        },
+      },
+    });
+
+    const sessionToken = crypto.randomBytes(48).toString("base64url");
+    const sessionTokenHash = sha256(sessionToken);
+    const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+
+    const session = await db.$transaction(async (tx) => {
+      await tx.gatewaySession.deleteMany({
+        where: {
+          botId: bot.id,
+          OR: [
+            {
+              expiresAt: {
+                lt: new Date(),
+              },
+            },
+            {
+              revokedAt: {
+                not: null,
+              },
+            },
+          ],
         },
       });
 
-    const guilds =
-      memberships.map(
-        (membership) =>
-          membership.guild,
-      );
-
-    // --------------------------------------------------
-    // 6. Resposta do Gateway
-    // --------------------------------------------------
-
-    return NextResponse.json(
-      {
-        url:
-          process.env.NEXT_PUBLIC_APP_URL ??
-          "http://localhost:3000",
-
-        session: {
-          id: session.id,
-
-          token: session.token,
-
-          expiresAt:
-            session.expiresAt.toISOString(),
+      return tx.gatewaySession.create({
+        data: {
+          botId: bot.id,
+          sessionTokenHash,
+          expiresAt,
+          lastHeartbeatAt: new Date(),
         },
-
-        bot: {
-          id: bot.id,
-
-          ownerId: bot.ownerId,
-
-          user: {
-            id: bot.user.id,
-
-            username:
-              bot.user.username,
-
-            globalName:
-              bot.user.globalName,
-
-            avatarUrl:
-              bot.user.avatarUrl,
-
-            bannerUrl:
-              bot.user.bannerUrl,
-          },
+        select: {
+          id: true,
+          expiresAt: true,
         },
+      });
+    });
 
-        guilds,
-
-        pusher: {
-          key:
-            process.env
-              .NEXT_PUBLIC_PUSHER_KEY ?? "",
-
-          cluster:
-            process.env.PUSHER_CLUSTER ??
-            "sa1",
-
-          authEndpoint:
-            "/api/gateway/auth",
-
-          channel:
-            gatewayService.getBotChannel(
-              bot.id,
-            ),
-        },
+    return json({
+      success: true,
+      url:
+        process.env.TYPECORD_GATEWAY_PUBLIC_URL ||
+        "https://gateway.tysaiw.com",
+      session: {
+        id: session.id,
+        token: sessionToken,
+        expiresAt: session.expiresAt.toISOString(),
       },
-      {
-        status: 200,
+      bot: {
+        id: bot.id,
+        user: bot.user,
       },
-    );
+      guilds: memberships.map((membership) => membership.guild),
+    });
   } catch (error) {
-    console.error(
-      "[GATEWAY]",
-      error,
-    );
+    console.error("[BOT_GATEWAY_SESSION_ERROR]", error);
 
-    return NextResponse.json(
+    return json(
       {
-        code: "INTERNAL_ERROR",
-
-        message:
-          "Erro interno do Gateway.",
+        success: false,
+        message: "Não foi possível criar a sessão do Gateway.",
       },
-      {
-        status: 500,
-      },
+      500,
     );
   }
 }

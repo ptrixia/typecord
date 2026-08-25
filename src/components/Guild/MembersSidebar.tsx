@@ -3,17 +3,312 @@
 import { Check, CircleUserRound, Copy, MessageCircle, MoreHorizontal, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import Avatar from "../Image/Avatar";
+import { onGatewayEvent } from "@/lib/realtime/gateway-client";
 
 interface PopupPosition {
   top: number;
   left: number;
 }
 
-export default function MembersSidebar({ members }: { members: any[] }) {
-  console.log(members)
+export default function MembersSidebar({
+  members,
+  guildId,
+}: {
+  members: any[];
+  guildId?: string;
+}) {
+  const [liveMembers, setLiveMembers] = useState<any[]>(members ?? []);
   const [selectedMember, setSelectedMember] = useState<any | null>(null);
   const [popupPosition, setPopupPosition] = useState<PopupPosition>({ top: 100, left: 100 });
   const popupRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setLiveMembers(members ?? []);
+  }, [members]);
+
+  useEffect(() => {
+    const patchUser = (
+      userId: string,
+      patch: Record<string, unknown>,
+    ) => {
+      setLiveMembers((current) =>
+        current.map((member) => {
+          const user = member?.user ?? member;
+          const id = String(
+            user?.id ?? member?.userId ?? "",
+          );
+
+          if (id !== String(userId)) {
+            return member;
+          }
+
+          if (member?.user) {
+            return {
+              ...member,
+              user: {
+                ...member.user,
+                ...patch,
+              },
+            };
+          }
+
+          return {
+            ...member,
+            ...patch,
+          };
+        }),
+      );
+
+      setSelectedMember((current) => {
+        if (!current) return current;
+
+        const user =
+          current?.user ?? current;
+
+        if (
+          String(
+            user?.id ??
+              current?.userId ??
+              "",
+          ) !== String(userId)
+        ) {
+          return current;
+        }
+
+        if (current?.user) {
+          return {
+            ...current,
+            user: {
+              ...current.user,
+              ...patch,
+            },
+          };
+        }
+
+        return {
+          ...current,
+          ...patch,
+        };
+      });
+    };
+
+    const removePresence =
+      onGatewayEvent<any>(
+        "PRESENCE_UPDATE",
+        ({ data }) => {
+          const userId =
+            String(data?.userId ?? "");
+
+          if (!userId) return;
+
+          patchUser(userId, {
+            status:
+              data?.online === false
+                ? "OFFLINE"
+                : data?.status ??
+                  "ONLINE",
+          });
+        },
+      );
+
+    const removeUserUpdate =
+      onGatewayEvent<any>(
+        "USER_UPDATE",
+        ({ data }) => {
+          const userId =
+            String(data?.id ?? data?.userId ?? "");
+
+          if (!userId) return;
+
+          const {
+            id: _id,
+            userId: _userId,
+            ...patch
+          } = data ?? {};
+
+          patchUser(
+            userId,
+            patch,
+          );
+        },
+      );
+
+    const removeMemberUpdate =
+      onGatewayEvent<any>(
+        "GUILD_MEMBER_UPDATE",
+        ({ data }) => {
+          if (
+            data?.guildId &&
+            guildId &&
+            String(data.guildId) !==
+              String(guildId)
+          ) {
+            return;
+          }
+
+          const incoming =
+            data?.member ?? data;
+
+          const incomingUserId =
+            String(
+              incoming?.user?.id ??
+                incoming?.userId ??
+                "",
+            );
+
+          if (!incomingUserId) {
+            return;
+          }
+
+          setLiveMembers((current) =>
+            current.map((member) => {
+              const user =
+                member?.user ?? member;
+
+              if (
+                String(
+                  user?.id ??
+                    member?.userId ??
+                    "",
+                ) !== incomingUserId
+              ) {
+                return member;
+              }
+
+              return {
+                ...member,
+                ...incoming,
+                user: {
+                  ...(member?.user ??
+                    {}),
+                  ...(incoming?.user ??
+                    {}),
+                },
+              };
+            }),
+          );
+        },
+      );
+
+    const removeMemberAdd =
+      onGatewayEvent<any>(
+        "GUILD_MEMBER_ADD",
+        ({ data }) => {
+          if (
+            data?.guildId &&
+            guildId &&
+            String(data.guildId) !==
+              String(guildId)
+          ) {
+            return;
+          }
+
+          const incoming =
+            data?.member ?? data;
+
+          if (!incoming) return;
+
+          const incomingId =
+            String(
+              incoming?.id ??
+                incoming?.userId ??
+                incoming?.user?.id ??
+                "",
+            );
+
+          if (!incomingId) return;
+
+          setLiveMembers((current) => {
+            const exists =
+              current.some(
+                (member) =>
+                  String(
+                    member?.id ??
+                      member?.userId ??
+                      member?.user?.id ??
+                      "",
+                  ) === incomingId,
+              );
+
+            return exists
+              ? current
+              : [...current, incoming];
+          });
+        },
+      );
+
+    const removeMemberRemove =
+      onGatewayEvent<any>(
+        "GUILD_MEMBER_REMOVE",
+        ({ data }) => {
+          if (
+            data?.guildId &&
+            guildId &&
+            String(data.guildId) !==
+              String(guildId)
+          ) {
+            return;
+          }
+
+          const memberId =
+            String(
+              data?.memberId ??
+                data?.id ??
+                "",
+            );
+
+          const userId =
+            String(
+              data?.userId ??
+                data?.user?.id ??
+                "",
+            );
+
+          if (
+            !memberId &&
+            !userId
+          ) {
+            return;
+          }
+
+          setLiveMembers((current) =>
+            current.filter(
+              (member) => {
+                const currentMemberId =
+                  String(
+                    member?.id ??
+                      "",
+                  );
+
+                const currentUserId =
+                  String(
+                    member?.user?.id ??
+                      member?.userId ??
+                      "",
+                  );
+
+                return !(
+                  (memberId &&
+                    currentMemberId ===
+                      memberId) ||
+                  (userId &&
+                    currentUserId ===
+                      userId)
+                );
+              },
+            ),
+          );
+        },
+      );
+
+    return () => {
+      removePresence();
+      removeUserUpdate();
+      removeMemberUpdate();
+      removeMemberAdd();
+      removeMemberRemove();
+    };
+  }, [guildId]);
 
   const getHighestRole = (member: any) => {
     if (!member.roles || member.roles.length === 0) return null;
@@ -21,7 +316,7 @@ export default function MembersSidebar({ members }: { members: any[] }) {
   };
 
   const groupedMembers = Object.values(
-    (members || []).reduce<Record<string, { role: any; members: any[] }>>((groups, member) => {
+    (liveMembers || []).reduce<Record<string, { role: any; members: any[] }>>((groups, member) => {
       const defaultRole = { id: "0", name: "Membro", position: 0, color: "#a1a1aa" };
       const highestRole = getHighestRole(member) || defaultRole;
       const key = String(highestRole.id);

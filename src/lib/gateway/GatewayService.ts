@@ -1,74 +1,72 @@
-import { pusherServer } from "@/lib/pusher";
 import type {
-    GatewayEvent,
-    GatewayPayload,
+  GatewayEvent,
 } from "./events";
 
+import {
+  emitToBot,
+  emitToBots,
+} from "@/lib/realtime/emitter";
+
+import type {
+  RealtimeEventName,
+} from "@/lib/realtime/contracts";
+
 export class GatewayService {
-    private sequence = new Map<string, number>();
-
-    getBotChannel(botId: string) {
-        return `private-bot-${botId}`;
+  async dispatch<T>(
+    botId: string,
+    event: GatewayEvent,
+    data: T,
+  ) {
+    if (!botId) {
+      return null;
     }
 
-    private nextSequence(botId: string) {
-        const current =
-            this.sequence.get(botId) ?? 0;
+    console.log(
+      `[GATEWAY] ${event} -> bot ${botId}`,
+    );
 
-        const next = current + 1;
+    return emitToBot(
+      botId,
+      event as RealtimeEventName,
+      data,
+    );
+  }
 
-        this.sequence.set(botId, next);
+  async broadcast<T>(
+    botIds: string[],
+    event: GatewayEvent,
+    data: T,
+  ) {
+    const uniqueBots = [
+      ...new Set(
+        botIds.filter(
+          (
+            botId,
+          ): botId is string =>
+            typeof botId ===
+              "string" &&
+            botId.length > 0,
+        ),
+      ),
+    ];
 
-        return next;
-    }
-
-    async dispatch<T>(
-        botId: string,
-        event: GatewayEvent,
-        data: T,
+    if (
+      uniqueBots.length === 0
     ) {
-        const payload: GatewayPayload<T> = {
-            op: 0,
-            t: event,
-            s: this.nextSequence(botId),
-            d: data,
-        };
-
-        console.log(
-            `[GATEWAY] ${event} -> bot ${botId}`,
-        );
-
-        await pusherServer.trigger(
-            this.getBotChannel(botId),
-            event,
-            payload,
-        );
+      return null;
     }
 
-    async broadcast<T>(
-        botIds: string[],
-        event: GatewayEvent,
-        data: T,
-    ) {
-        const uniqueBots = [
-            ...new Set(botIds),
-        ];
+    console.log(
+      `[GATEWAY] Broadcast ${event} para ${uniqueBots.length} bot(s)`,
+    );
 
-        console.log(
-            `[GATEWAY] Broadcast ${event} para ${uniqueBots.length} bot(s)`,
-        );
-
-        await Promise.all(
-            uniqueBots.map((botId) =>
-                this.dispatch(
-                    botId,
-                    event,
-                    data,
-                ),
-            ),
-        );
-    }
+    return emitToBots(
+      uniqueBots,
+      event as RealtimeEventName,
+      data,
+    );
+  }
 }
 
 export const gatewayService =
-    new GatewayService();
+  new GatewayService();
