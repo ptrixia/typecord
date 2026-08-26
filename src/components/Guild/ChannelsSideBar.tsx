@@ -16,6 +16,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  FolderPlus,
   GripVertical,
   Hash,
   HeadphoneOff,
@@ -50,6 +51,7 @@ import Avatar from "../Image/Avatar";
 import Modal from "../Modal";
 import UserProfileSideBar from "../UserProfileSideBar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
+import ChannelSettingsModal from "./ChannelSettingsModal";
 import GuildSettingsModal from "./GuildSettingsModal";
 
 type ChannelType = "GUILD_TEXT" | "GUILD_VOICE";
@@ -82,6 +84,12 @@ type VoicePresenceMap = Record<string, VoicePresence[]>;
 interface FeedbackState {
   type: "success" | "error";
   message: string;
+}
+
+interface CategorySummary {
+  id: string;
+  name: string;
+  position: number;
 }
 
 function resolveFileUrl(urlOrKey?: string | null) {
@@ -226,9 +234,8 @@ async function channelRequest(
     },
   );
 
-  const data = response.status === 204
-    ? null
-    : await response.json().catch(() => null);
+  const data =
+    response.status === 204 ? null : await response.json().catch(() => null);
 
   if (!response.ok) {
     throw new Error(
@@ -237,6 +244,37 @@ async function channelRequest(
   }
 
   return data?.channel ?? data;
+}
+
+async function apiRequest(
+  url: string,
+  method: "GET" | "POST" | "PATCH" | "DELETE",
+  body?: Record<string, unknown>,
+) {
+  const response = await fetch(url, {
+    method,
+    cache: "no-store",
+    headers: body ? { "Content-Type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const raw = response.status === 204 ? "" : await response.text();
+  let data: any = null;
+
+  if (raw) {
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      data = null;
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      data?.error || data?.message || raw || `Erro HTTP ${response.status}.`,
+    );
+  }
+
+  return data;
 }
 
 export default function ChannelsSidebar({
@@ -254,11 +292,13 @@ export default function ChannelsSidebar({
 
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-  const [isCreateChannelModalOpen, setIsCreateChannelModalOpen] = useState(false);
+  const [isCreateChannelModalOpen, setIsCreateChannelModalOpen] =
+    useState(false);
   const [isChannelListCollapsed, setIsChannelListCollapsed] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [channelName, setChannelName] = useState("");
   const [channelType, setChannelType] = useState<ChannelType>("GUILD_TEXT");
+  const [createChannelCategoryId, setCreateChannelCategoryId] = useState("");
   const [isCreatingChannel, setIsCreatingChannel] = useState(false);
   const [voiceUsers, setVoiceUsers] = useState<VoicePresenceMap>({});
   const [orderedChannels, setOrderedChannels] = useState<any[]>(() =>
@@ -268,16 +308,36 @@ export default function ChannelsSidebar({
     null,
   );
   const [editingChannel, setEditingChannel] = useState<any | null>(null);
-  const [editedChannelName, setEditedChannelName] = useState("");
   const [deletingChannel, setDeletingChannel] = useState<any | null>(null);
   const [channelActionId, setChannelActionId] = useState<string | null>(null);
   const [isReordering, setIsReordering] = useState(false);
-  const [draggingChannelId, setDraggingChannelId] = useState<string | null>(null);
+  const [draggingChannelId, setDraggingChannelId] = useState<string | null>(
+    null,
+  );
   const [dropTarget, setDropTarget] = useState<{
     channelId: string;
     position: DropPosition;
   } | null>(null);
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
+  const [categories, setCategories] = useState<CategorySummary[]>(() =>
+    [...(guild?.categories ?? [])].sort(
+      (left: any, right: any) => Number(left.position) - Number(right.position),
+    ),
+  );
+  const [collapsedCategoryIds, setCollapsedCategoryIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const [openCategoryMenuId, setOpenCategoryMenuId] = useState<string | null>(
+    null,
+  );
+  const [isCreateCategoryModalOpen, setIsCreateCategoryModalOpen] =
+    useState(false);
+  const [categoryName, setCategoryName] = useState("");
+  const [editingCategory, setEditingCategory] =
+    useState<CategorySummary | null>(null);
+  const [deletingCategory, setDeletingCategory] =
+    useState<CategorySummary | null>(null);
+  const [categoryActionId, setCategoryActionId] = useState<string | null>(null);
 
   const resolvedBannerUrl = resolveFileUrl(guild?.bannerUrl);
   const currentUserId = String(
@@ -300,16 +360,36 @@ export default function ChannelsSidebar({
   }, [guild?.channels]);
 
   useEffect(() => {
+    if (!guild?.id) return;
+    let cancelled = false;
+
+    apiRequest(
+      `/api/guilds/${encodeURIComponent(String(guild.id))}/categories`,
+      "GET",
+    )
+      .then((data) => {
+        if (!cancelled) setCategories(data?.categories ?? []);
+      })
+      .catch((categoryError) => {
+        console.error("[CATEGORY_LIST]", categoryError);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [guild?.id]);
+
+  useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
-      if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(target)
-      ) {
+      if (dropdownRef.current && !dropdownRef.current.contains(target)) {
         setIsDropdownOpen(false);
       }
       if (!target.closest("[data-channel-actions]")) {
         setOpenChannelMenuId(null);
+      }
+      if (!target.closest("[data-category-actions]")) {
+        setOpenCategoryMenuId(null);
       }
     };
 
@@ -326,41 +406,79 @@ export default function ChannelsSidebar({
   }, []);
 
   const isOwner =
-    Boolean(currentUserId) &&
-    String(guild?.ownerId ?? "") === currentUserId;
+    Boolean(currentUserId) && String(guild?.ownerId ?? "") === currentUserId;
 
-  const memberPermissions = useMemo(
-    () =>
-      (currentMember?.roles ?? []).reduce(
-        (permissions: bigint, role: any) =>
-          permissions | normalizePermissions(role?.permissions),
-        0n,
-      ),
-    [currentMember?.roles],
-  );
+  const memberPermissions = useMemo(() => {
+    const everyoneRole = (guild?.roles ?? []).find(
+      (role: any) => role?.isDefault,
+    );
+    return (currentMember?.roles ?? []).reduce(
+      (permissions: bigint, role: any) =>
+        permissions | normalizePermissions(role?.permissions),
+      normalizePermissions(everyoneRole?.permissions),
+    );
+  }, [currentMember?.roles, guild?.roles]);
 
   const canManageChannels =
-    isOwner ||
-    hasPermission(memberPermissions, Permissions.MANAGE_CHANNELS);
+    isOwner || hasPermission(memberPermissions, Permissions.MANAGE_CHANNELS);
   const canManageGuild =
     isOwner || hasPermission(memberPermissions, Permissions.MANAGE_GUILD);
 
-  const visibleChannels = useMemo(() => {
-    const normalizedQuery = searchQuery.trim().toLocaleLowerCase("pt-BR");
-    if (!normalizedQuery) return orderedChannels;
-    return orderedChannels.filter((channel) =>
-      String(channel?.name ?? "")
-        .toLocaleLowerCase("pt-BR")
-        .includes(normalizedQuery),
+  const channelSections = useMemo(() => {
+    const query = searchQuery.trim().toLocaleLowerCase("pt-BR");
+    const sortedCategories = [...categories].sort(
+      (left, right) => left.position - right.position,
     );
-  }, [orderedChannels, searchQuery]);
+    const sections = sortedCategories.map((category) => {
+      const categoryMatches = category.name
+        .toLocaleLowerCase("pt-BR")
+        .includes(query);
+      const channels = sortChannels(
+        orderedChannels.filter(
+          (channel) => String(channel.categoryId ?? "") === category.id,
+        ),
+      ).filter(
+        (channel) =>
+          !query ||
+          categoryMatches ||
+          String(channel.name ?? "")
+            .toLocaleLowerCase("pt-BR")
+            .includes(query),
+      );
+      return { category, channels };
+    });
+    const knownCategoryIds = new Set(categories.map(({ id }) => id));
+    const uncategorized = sortChannels(
+      orderedChannels.filter(
+        (channel) =>
+          !channel.categoryId ||
+          !knownCategoryIds.has(String(channel.categoryId)),
+      ),
+    ).filter(
+      (channel) =>
+        !query ||
+        String(channel.name ?? "")
+          .toLocaleLowerCase("pt-BR")
+          .includes(query),
+    );
+
+    return { sections, uncategorized };
+  }, [categories, orderedChannels, searchQuery]);
+
+  const displayedChannelCount = useMemo(
+    () =>
+      channelSections.sections.reduce(
+        (total, section) => total + section.channels.length,
+        0,
+      ) + channelSections.uncategorized.length,
+    [channelSections],
+  );
 
   const getVoiceMember = useCallback(
     (userId: string) =>
       guild?.members?.find(
         (member: any) =>
-          String(member?.user?.id ?? member?.userId ?? "") ===
-          String(userId),
+          String(member?.user?.id ?? member?.userId ?? "") === String(userId),
       ),
     [guild?.members],
   );
@@ -393,9 +511,7 @@ export default function ChannelsSidebar({
         const userId = String(
           presence?.userId ?? data?.userId ?? data?.user?.id ?? "",
         );
-        const channelId = String(
-          data?.channelId ?? rawState?.channelId ?? "",
-        );
+        const channelId = String(data?.channelId ?? rawState?.channelId ?? "");
         const connected = Boolean(
           data?.connected ?? rawState?.connected ?? channelId,
         );
@@ -468,9 +584,18 @@ export default function ChannelsSidebar({
 
     setIsCreatingChannel(true);
     try {
-      await createChannel(guild.id, normalizedName, channelType);
+      const createdChannel = await createChannel(
+        guild.id,
+        normalizedName,
+        channelType,
+        createChannelCategoryId || null,
+      );
+      setOrderedChannels((current) =>
+        sortChannels([...current, createdChannel]),
+      );
       setIsCreateChannelModalOpen(false);
       setChannelName("");
+      setCreateChannelCategoryId("");
       showFeedback({ type: "success", message: "Canal criado com sucesso." });
       router.refresh();
     } catch (createError) {
@@ -494,44 +619,7 @@ export default function ChannelsSidebar({
 
   const openEditChannel = (channel: any) => {
     setEditingChannel(channel);
-    setEditedChannelName(String(channel?.name ?? ""));
     setOpenChannelMenuId(null);
-  };
-
-  const handleEditChannel = async () => {
-    const name = editedChannelName.trim();
-    const channelId = String(editingChannel?.id ?? "");
-    if (!name || !channelId || channelActionId) return;
-
-    setChannelActionId(channelId);
-    try {
-      const updatedChannel = await channelRequest(channelId, "PATCH", {
-        guildId: guild.id,
-        name,
-      });
-
-      setOrderedChannels((current) =>
-        current.map((channel) =>
-          String(channel.id) === channelId
-            ? { ...channel, ...(updatedChannel ?? {}), name }
-            : channel,
-        ),
-      );
-      setEditingChannel(null);
-      showFeedback({ type: "success", message: "Canal atualizado." });
-      router.refresh();
-    } catch (editError) {
-      console.error("[CHANNEL_UPDATE]", editError);
-      showFeedback({
-        type: "error",
-        message:
-          editError instanceof Error
-            ? editError.message
-            : "Não foi possível editar o canal.",
-      });
-    } finally {
-      setChannelActionId(null);
-    }
   };
 
   const handleDeleteChannel = async () => {
@@ -574,43 +662,31 @@ export default function ChannelsSidebar({
     }
   };
 
-  const persistChannelOrder = async (
+  const persistChannelUpdates = async (
     previousChannels: any[],
-    nextChannels: any[],
+    updates: Array<{ id: string; position: number; categoryId: string | null }>,
   ) => {
-    if (isReordering) return;
+    if (isReordering || updates.length === 0) return;
+    const updateMap = new Map(updates.map((update) => [update.id, update]));
+    const optimisticChannels = previousChannels.map((channel) => {
+      const update = updateMap.get(String(channel.id));
+      return update ? { ...channel, ...update } : channel;
+    });
 
-    const positionedChannels = nextChannels.map((channel, position) => ({
-      ...channel,
-      position,
-    }));
-    const previousPositions = new Map(
-      previousChannels.map((channel, index) => [
-        String(channel.id),
-        Number.isFinite(Number(channel.position))
-          ? Number(channel.position)
-          : index,
-      ]),
-    );
-    const changedChannels = positionedChannels.filter(
-      (channel) =>
-        previousPositions.get(String(channel.id)) !== channel.position,
-    );
-
-    setOrderedChannels(positionedChannels);
+    setOrderedChannels(optimisticChannels);
     setIsReordering(true);
     setOpenChannelMenuId(null);
 
     try {
-      await Promise.all(
-        changedChannels.map((channel) =>
-          channelRequest(String(channel.id), "PATCH", {
-            guildId: guild.id,
-            position: channel.position,
-          }),
-        ),
+      await apiRequest(
+        `/api/guilds/${encodeURIComponent(String(guild.id))}/channels/reorder`,
+        "PATCH",
+        { channels: updates },
       );
-      showFeedback({ type: "success", message: "Ordem dos canais atualizada." });
+      showFeedback({
+        type: "success",
+        message: "Ordem dos canais atualizada.",
+      });
       router.refresh();
     } catch (reorderError) {
       console.error("[CHANNEL_REORDER]", reorderError);
@@ -631,21 +707,45 @@ export default function ChannelsSidebar({
 
   const moveChannelByOffset = (channelId: string, offset: -1 | 1) => {
     const previousChannels = [...orderedChannels];
-    const currentIndex = previousChannels.findIndex(
+    const currentChannel = previousChannels.find(
+      (channel) => String(channel.id) === channelId,
+    );
+    if (!currentChannel) return;
+
+    const categoryId = currentChannel.categoryId
+      ? String(currentChannel.categoryId)
+      : null;
+    const siblings = sortChannels(
+      previousChannels.filter(
+        (channel) => String(channel.categoryId ?? "") === (categoryId ?? ""),
+      ),
+    );
+    const currentIndex = siblings.findIndex(
       (channel) => String(channel.id) === channelId,
     );
     const targetIndex = currentIndex + offset;
-    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= previousChannels.length) {
+
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= siblings.length) {
       return;
     }
 
-    const nextChannels = [...previousChannels];
-    const [movedChannel] = nextChannels.splice(currentIndex, 1);
-    nextChannels.splice(targetIndex, 0, movedChannel);
-    void persistChannelOrder(previousChannels, nextChannels);
+    const nextSiblings = [...siblings];
+    const [movedChannel] = nextSiblings.splice(currentIndex, 1);
+    nextSiblings.splice(targetIndex, 0, movedChannel);
+    void persistChannelUpdates(
+      previousChannels,
+      nextSiblings.map((channel, position) => ({
+        id: String(channel.id),
+        position,
+        categoryId,
+      })),
+    );
   };
 
-  const handleDragOver = (event: DragEvent<HTMLDivElement>, channelId: string) => {
+  const handleDragOver = (
+    event: DragEvent<HTMLDivElement>,
+    channelId: string,
+  ) => {
     if (!draggingChannelId || draggingChannelId === channelId) return;
     event.preventDefault();
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -659,36 +759,215 @@ export default function ChannelsSidebar({
     if (!draggingChannelId || !dropTarget) return;
 
     const previousChannels = [...orderedChannels];
-    const nextChannels = [...previousChannels];
-    const sourceIndex = nextChannels.findIndex(
+    const source = previousChannels.find(
       (channel) => String(channel.id) === draggingChannelId,
     );
-    if (sourceIndex < 0) return;
-
-    const [movedChannel] = nextChannels.splice(sourceIndex, 1);
-    const targetIndex = nextChannels.findIndex(
+    const target = previousChannels.find(
       (channel) => String(channel.id) === dropTarget.channelId,
+    );
+    if (!source || !target) return;
+
+    const sourceCategoryId = source.categoryId
+      ? String(source.categoryId)
+      : null;
+    const targetCategoryId = target.categoryId
+      ? String(target.categoryId)
+      : null;
+    const sourceSiblings = sortChannels(
+      previousChannels.filter(
+        (channel) =>
+          String(channel.categoryId ?? "") === (sourceCategoryId ?? "") &&
+          String(channel.id) !== String(source.id),
+      ),
+    );
+    const targetSiblings =
+      sourceCategoryId === targetCategoryId
+        ? sourceSiblings
+        : sortChannels(
+            previousChannels.filter(
+              (channel) =>
+                String(channel.categoryId ?? "") === (targetCategoryId ?? "") &&
+                String(channel.id) !== String(source.id),
+            ),
+          );
+    const targetIndex = targetSiblings.findIndex(
+      (channel) => String(channel.id) === String(target.id),
     );
     if (targetIndex < 0) return;
 
-    nextChannels.splice(
+    targetSiblings.splice(
       dropTarget.position === "after" ? targetIndex + 1 : targetIndex,
       0,
-      movedChannel,
+      { ...source, categoryId: targetCategoryId },
+    );
+    const updates = [
+      ...sourceSiblings.map((channel, position) => ({
+        id: String(channel.id),
+        position,
+        categoryId: sourceCategoryId,
+      })),
+      ...targetSiblings.map((channel, position) => ({
+        id: String(channel.id),
+        position,
+        categoryId: targetCategoryId,
+      })),
+    ];
+    const deduplicatedUpdates = Array.from(
+      new Map(updates.map((update) => [update.id, update])).values(),
     );
 
+    void persistChannelUpdates(previousChannels, deduplicatedUpdates);
+  };
+
+  const handleCreateCategory = async () => {
+    const name = categoryName.trim();
+    if (!name || categoryActionId) return;
+    setCategoryActionId("create");
+
+    try {
+      const data = await apiRequest(
+        `/api/guilds/${encodeURIComponent(String(guild.id))}/categories`,
+        "POST",
+        { name },
+      );
+      setCategories((current) => [...current, data.category]);
+      setCategoryName("");
+      setIsCreateCategoryModalOpen(false);
+      showFeedback({ type: "success", message: "Categoria criada." });
+      router.refresh();
+    } catch (categoryError) {
+      showFeedback({
+        type: "error",
+        message:
+          categoryError instanceof Error
+            ? categoryError.message
+            : "Não foi possível criar a categoria.",
+      });
+    } finally {
+      setCategoryActionId(null);
+    }
+  };
+
+  const handleEditCategory = async () => {
+    const name = categoryName.trim();
+    if (!editingCategory || !name || categoryActionId) return;
+    setCategoryActionId(editingCategory.id);
+
+    try {
+      const data = await apiRequest(
+        `/api/categories/${encodeURIComponent(editingCategory.id)}`,
+        "PATCH",
+        { name },
+      );
+      setCategories((current) =>
+        current.map((category) =>
+          category.id === editingCategory.id ? data.category : category,
+        ),
+      );
+      setEditingCategory(null);
+      setCategoryName("");
+      showFeedback({ type: "success", message: "Categoria atualizada." });
+      router.refresh();
+    } catch (categoryError) {
+      showFeedback({
+        type: "error",
+        message:
+          categoryError instanceof Error
+            ? categoryError.message
+            : "Não foi possível editar a categoria.",
+      });
+    } finally {
+      setCategoryActionId(null);
+    }
+  };
+
+  const handleDeleteCategory = async () => {
+    if (!deletingCategory || categoryActionId) return;
+    setCategoryActionId(deletingCategory.id);
+
+    try {
+      await apiRequest(
+        `/api/categories/${encodeURIComponent(deletingCategory.id)}`,
+        "DELETE",
+      );
+      setCategories((current) =>
+        current.filter((category) => category.id !== deletingCategory.id),
+      );
+      setOrderedChannels((current) =>
+        current.map((channel) =>
+          String(channel.categoryId ?? "") === deletingCategory.id
+            ? { ...channel, categoryId: null }
+            : channel,
+        ),
+      );
+      setDeletingCategory(null);
+      showFeedback({
+        type: "success",
+        message: "Categoria excluída; os canais ficaram sem categoria.",
+      });
+      router.refresh();
+    } catch (categoryError) {
+      showFeedback({
+        type: "error",
+        message:
+          categoryError instanceof Error
+            ? categoryError.message
+            : "Não foi possível excluir a categoria.",
+      });
+    } finally {
+      setCategoryActionId(null);
+    }
+  };
+
+  const moveCategoryByOffset = async (categoryId: string, offset: -1 | 1) => {
+    if (categoryActionId) return;
+    const previousCategories = [...categories].sort(
+      (left, right) => left.position - right.position,
+    );
+    const currentIndex = previousCategories.findIndex(
+      (category) => category.id === categoryId,
+    );
+    const targetIndex = currentIndex + offset;
     if (
-      nextChannels.every(
-        (channel, index) =>
-          String(channel.id) === String(previousChannels[index]?.id),
-      )
+      currentIndex < 0 ||
+      targetIndex < 0 ||
+      targetIndex >= previousCategories.length
     ) {
-      setDraggingChannelId(null);
-      setDropTarget(null);
       return;
     }
 
-    void persistChannelOrder(previousChannels, nextChannels);
+    const nextCategories = [...previousCategories];
+    const [movedCategory] = nextCategories.splice(currentIndex, 1);
+    nextCategories.splice(targetIndex, 0, movedCategory);
+    const positionedCategories = nextCategories.map((category, position) => ({
+      ...category,
+      position,
+    }));
+    setCategories(positionedCategories);
+    setCategoryActionId(categoryId);
+    setOpenCategoryMenuId(null);
+
+    try {
+      const data = await apiRequest(
+        `/api/guilds/${encodeURIComponent(String(guild.id))}/categories/reorder`,
+        "PATCH",
+        { categoryIds: positionedCategories.map(({ id }) => id) },
+      );
+      setCategories(data.categories);
+      showFeedback({ type: "success", message: "Categoria movida." });
+      router.refresh();
+    } catch (categoryError) {
+      setCategories(previousCategories);
+      showFeedback({
+        type: "error",
+        message:
+          categoryError instanceof Error
+            ? categoryError.message
+            : "Não foi possível mover a categoria.",
+      });
+    } finally {
+      setCategoryActionId(null);
+    }
   };
 
   return (
@@ -717,17 +996,21 @@ export default function ChannelsSidebar({
 
             <span
               className={`relative z-10 flex min-w-0 flex-1 items-center gap-2 font-bold ${
-                resolvedBannerUrl ? "p-4 text-white" : "text-stone-900 dark:text-white"
+                resolvedBannerUrl
+                  ? "p-4 text-white"
+                  : "text-stone-900 dark:text-white"
               }`}
             >
               {guild?.verified && (
                 <Tooltip>
-                  <TooltipTrigger asChild>
+                  <TooltipTrigger>
                     <span className="flex shrink-0 items-center">
                       <BadgeCheck className="h-5 w-5 fill-emerald-400 text-white dark:text-[#111214]" />
                     </span>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom">Servidor verificado</TooltipContent>
+                  <TooltipContent side="bottom">
+                    Servidor verificado
+                  </TooltipContent>
                 </Tooltip>
               )}
               <span className="truncate text-sm">{guild?.name}</span>
@@ -756,17 +1039,32 @@ export default function ChannelsSidebar({
                 </button>
               )}
               {canManageChannels && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsCreateChannelModalOpen(true);
-                    setIsDropdownOpen(false);
-                  }}
-                  className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold transition hover:bg-indigo-500 hover:text-white"
-                >
-                  Criar canal
-                  <Plus className="h-4 w-4" />
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCreateChannelCategoryId("");
+                      setIsCreateChannelModalOpen(true);
+                      setIsDropdownOpen(false);
+                    }}
+                    className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold transition hover:bg-indigo-500 hover:text-white"
+                  >
+                    Criar canal
+                    <Plus className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCategoryName("");
+                      setIsCreateCategoryModalOpen(true);
+                      setIsDropdownOpen(false);
+                    }}
+                    className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold transition hover:bg-indigo-500 hover:text-white"
+                  >
+                    Criar categoria
+                    <FolderPlus className="h-4 w-4" />
+                  </button>
+                </>
               )}
               <div className="my-1 h-px bg-stone-200 dark:bg-white/[0.07]" />
               <button
@@ -823,280 +1121,493 @@ export default function ChannelsSidebar({
           <div className="sticky top-0 z-20 flex items-center gap-1 bg-stone-100/95 px-1 pb-1 pt-2 backdrop-blur dark:bg-[#111214]/95">
             <button
               type="button"
-              onClick={() => setIsChannelListCollapsed((current) => !current)}
               className="flex min-w-0 flex-1 items-center gap-1 rounded-lg px-1 py-1 text-left text-[10px] font-bold uppercase tracking-[0.14em] text-stone-500 transition hover:text-stone-800 dark:text-zinc-500 dark:hover:text-zinc-300"
             >
-              {isChannelListCollapsed ? (
-                <ChevronRight className="h-3 w-3" />
-              ) : (
-                <ChevronDown className="h-3 w-3" />
-              )}
+              
               <span className="truncate">Canais</span>
               <span className="ml-1 rounded-full bg-stone-200 px-1.5 py-0.5 text-[8px] tabular-nums dark:bg-white/[0.06]">
                 {orderedChannels.length}
               </span>
             </button>
 
-            {isReordering && <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-500" />}
+            {isReordering && (
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-500" />
+            )}
             {canManageChannels && (
-              <button
-                type="button"
-                onClick={() => setIsCreateChannelModalOpen(true)}
-                className="flex h-7 w-7 items-center justify-center rounded-lg text-stone-500 transition hover:bg-stone-200 hover:text-stone-900 dark:text-zinc-500 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
-                title="Criar canal"
-                aria-label="Criar canal"
-              >
-                <Plus className="h-4 w-4" />
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCategoryName("");
+                    setIsCreateCategoryModalOpen(true);
+                  }}
+                  className="flex h-7 w-7 items-center justify-center rounded-lg text-stone-500 transition hover:bg-stone-200 hover:text-stone-900 dark:text-zinc-500 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
+                  title="Criar categoria"
+                  aria-label="Criar categoria"
+                >
+                  <FolderPlus className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCreateChannelCategoryId("");
+                    setIsCreateChannelModalOpen(true);
+                  }}
+                  className="flex h-7 w-7 items-center justify-center rounded-lg text-stone-500 transition hover:bg-stone-200 hover:text-stone-900 dark:text-zinc-500 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
+                  title="Criar canal sem categoria"
+                  aria-label="Criar canal"
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              </>
             )}
           </div>
 
           {!isChannelListCollapsed && (
-            <div className="mt-1 space-y-0.5">
-              {visibleChannels.map((channel: any) => {
-                const channelId = String(channel.id);
-                const channelIndex = orderedChannels.findIndex(
-                  (item) => String(item.id) === channelId,
-                );
-                const isVoice = channel.type === "GUILD_VOICE";
-                const isActive = String(activeChannel?.id ?? "") === channelId;
-                const connectedUsers = voiceUsers[channelId] ?? [];
-                const isConnectedVoice =
-                  isVoice &&
-                  String(displayedVoiceChannel?.id ?? "") === channelId;
-                const userLimit = Number(channel?.userLimit ?? 0);
-                const isFull = userLimit > 0 && connectedUsers.length >= userLimit;
-                const sortedConnectedUsers = [...connectedUsers].sort(
-                  (left, right) => {
-                    if (left.userId === currentUserId) return -1;
-                    if (right.userId === currentUserId) return 1;
-                    const leftMember = getVoiceMember(left.userId);
-                    const rightMember = getVoiceMember(right.userId);
-                    const leftUser = leftMember?.user ?? leftMember;
-                    const rightUser = rightMember?.user ?? rightMember;
-                    return String(
-                      leftUser?.globalName ?? leftUser?.username ?? "",
-                    ).localeCompare(
-                      String(
-                        rightUser?.globalName ?? rightUser?.username ?? "",
-                      ),
-                      "pt-BR",
-                    );
-                  },
-                );
+            <div className="mt-1 space-y-2">
+              {[
+                ...channelSections.sections,
+                {
+                  category: null,
+                  channels: channelSections.uncategorized,
+                },
+              ].map(({ category, channels }) => {
+                const sectionId = category?.id ?? "__uncategorized";
+                const isCollapsed = collapsedCategoryIds.has(sectionId);
+                const categoryPosition = category
+                  ? categories
+                      .slice()
+                      .sort((left, right) => left.position - right.position)
+                      .findIndex((item) => item.id === category.id)
+                  : -1;
+
+                if (searchQuery && channels.length === 0) return null;
+                if (!category && channels.length === 0 && !canManageChannels) {
+                  return null;
+                }
 
                 return (
-                  <div
-                    key={channelId}
-                    onDragOver={(event) => handleDragOver(event, channelId)}
-                    onDrop={handleDrop}
-                    className="relative"
-                  >
-                    {dropTarget?.channelId === channelId && (
-                      <span
-                        className={`pointer-events-none absolute inset-x-1 z-30 h-0.5 rounded-full bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.7)] ${
-                          dropTarget.position === "before" ? "top-0" : "bottom-0"
-                        }`}
-                      />
-                    )}
-
-                    <div
-                      className={`group/channel flex min-h-9 items-center rounded-xl transition ${
-                        isActive
-                          ? "bg-stone-200 text-stone-900 dark:bg-white/[0.08] dark:text-white"
-                          : "text-stone-600 hover:bg-stone-200/70 hover:text-stone-900 dark:text-zinc-500 dark:hover:bg-white/[0.045] dark:hover:text-zinc-200"
-                      } ${draggingChannelId === channelId ? "opacity-40" : ""}`}
-                    >
-                      {canManageChannels && !searchQuery && (
-                        <button
-                          type="button"
-                          draggable={!isReordering}
-                          onDragStart={(event) => {
-                            event.dataTransfer.effectAllowed = "move";
-                            event.dataTransfer.setData("text/plain", channelId);
-                            setDraggingChannelId(channelId);
-                          }}
-                          onDragEnd={() => {
-                            setDraggingChannelId(null);
-                            setDropTarget(null);
-                          }}
-                          className="hidden h-8 w-5 shrink-0 cursor-grab items-center justify-center text-stone-400 active:cursor-grabbing group-hover/channel:flex dark:text-zinc-600"
-                          title="Arrastar canal"
-                          aria-label={`Mover ${channel.name}`}
-                        >
-                          <GripVertical className="h-3.5 w-3.5" />
-                        </button>
-                      )}
-
+                  <section key={sectionId} className="relative">
+                    <div className="group/category flex h-8 items-center gap-1 rounded-lg px-1 text-stone-500 dark:text-zinc-500">
                       <button
                         type="button"
-                        onClick={() => handleChannelClick(channel)}
-                        className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left"
+                        onClick={() =>
+                          setCollapsedCategoryIds((current) => {
+                            const next = new Set(current);
+                            if (next.has(sectionId)) next.delete(sectionId);
+                            else next.add(sectionId);
+                            return next;
+                          })
+                        }
+                        className="flex min-w-0 flex-1 items-center gap-1 text-left text-[10px] font-bold uppercase tracking-[0.12em] hover:text-stone-800 dark:hover:text-zinc-200"
                       >
-                        {isVoice ? (
-                          <Volume2
-                            className={`h-4 w-4 shrink-0 ${
-                              isConnectedVoice ? "text-emerald-500" : ""
-                            }`}
-                          />
+                        {isCollapsed ? (
+                          <ChevronRight className="h-3 w-3" />
                         ) : (
-                          <Hash className="h-4 w-4 shrink-0" />
+                          <ChevronDown className="h-3 w-3" />
                         )}
-                        <span className="min-w-0 flex-1 truncate text-xs font-semibold">
-                          {channel.name}
+                        <span className="truncate">
+                          {category?.name ?? "Sem categoria"}
                         </span>
-                        {isVoice && connectedUsers.length > 0 && (
-                          <span
-                            className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold tabular-nums ${
-                              isFull
-                                ? "bg-red-500/10 text-red-500"
-                                : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                            }`}
-                          >
-                            {connectedUsers.length}{userLimit > 0 ? `/${userLimit}` : ""}
-                          </span>
-                        )}
+                        <span className="rounded-full bg-stone-200 px-1.5 py-0.5 text-[8px] tabular-nums dark:bg-white/[0.06]">
+                          {channels.length}
+                        </span>
                       </button>
 
                       {canManageChannels && (
-                        <div className="relative shrink-0 pr-1" data-channel-actions>
+                        <>
                           <button
                             type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setOpenChannelMenuId((current) =>
-                                current === channelId ? null : channelId,
-                              );
+                            onClick={() => {
+                              setCreateChannelCategoryId(category?.id ?? "");
+                              setIsCreateChannelModalOpen(true);
                             }}
-                            className={`flex h-7 w-7 items-center justify-center rounded-lg transition hover:bg-black/5 dark:hover:bg-white/[0.06] ${
-                              openChannelMenuId === channelId
-                                ? "opacity-100"
-                                : "opacity-0 group-hover/channel:opacity-100"
-                            }`}
-                            aria-label={`Ações de ${channel.name}`}
+                            className="flex h-6 w-6 items-center justify-center rounded-md opacity-0 transition hover:bg-stone-200 group-hover/category:opacity-100 dark:hover:bg-white/[0.06]"
+                            title="Criar canal nesta categoria"
                           >
-                            <MoreHorizontal className="h-4 w-4" />
+                            <Plus className="h-3.5 w-3.5" />
                           </button>
-
-                          {openChannelMenuId === channelId && (
-                            <div className="absolute right-0 top-8 z-[70] w-44 rounded-2xl border border-stone-200 bg-white p-1.5 shadow-2xl shadow-black/20 dark:border-white/10 dark:bg-[#1a1b20]">
+                          {category && (
+                            <div className="relative" data-category-actions>
                               <button
                                 type="button"
-                                onClick={() => openEditChannel(channel)}
-                                className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold transition hover:bg-indigo-500 hover:text-white"
-                              >
-                                Editar canal
-                                <Pencil className="h-3.5 w-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => moveChannelByOffset(channelId, -1)}
-                                disabled={channelIndex <= 0 || isReordering}
-                                className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold transition hover:bg-stone-100 disabled:opacity-40 dark:hover:bg-white/[0.06]"
-                              >
-                                Mover para cima
-                                <ArrowUp className="h-3.5 w-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => moveChannelByOffset(channelId, 1)}
-                                disabled={
-                                  channelIndex >= orderedChannels.length - 1 ||
-                                  isReordering
+                                onClick={() =>
+                                  setOpenCategoryMenuId((current) =>
+                                    current === category.id
+                                      ? null
+                                      : category.id,
+                                  )
                                 }
-                                className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold transition hover:bg-stone-100 disabled:opacity-40 dark:hover:bg-white/[0.06]"
+                                className="flex h-6 w-6 items-center justify-center rounded-md opacity-0 transition hover:bg-stone-200 group-hover/category:opacity-100 dark:hover:bg-white/[0.06]"
+                                aria-label={`Ações de ${category.name}`}
                               >
-                                Mover para baixo
-                                <ArrowDown className="h-3.5 w-3.5" />
+                                <MoreHorizontal className="h-3.5 w-3.5" />
                               </button>
-                              <div className="my-1 h-px bg-stone-200 dark:bg-white/[0.07]" />
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setDeletingChannel(channel);
-                                  setOpenChannelMenuId(null);
-                                }}
-                                className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold text-red-500 transition hover:bg-red-500 hover:text-white"
-                              >
-                                Excluir canal
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
+                              {openCategoryMenuId === category.id && (
+                                <div className="absolute right-0 top-7 z-[80] w-44 rounded-2xl border border-stone-200 bg-white p-1.5 shadow-2xl dark:border-white/10 dark:bg-[#1a1b20]">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingCategory(category);
+                                      setCategoryName(category.name);
+                                      setOpenCategoryMenuId(null);
+                                    }}
+                                    className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold hover:bg-indigo-500 hover:text-white"
+                                  >
+                                    Renomear categoria
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      void moveCategoryByOffset(category.id, -1)
+                                    }
+                                    disabled={
+                                      categoryPosition <= 0 ||
+                                      Boolean(categoryActionId)
+                                    }
+                                    className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold hover:bg-stone-100 disabled:opacity-40 dark:hover:bg-white/[0.06]"
+                                  >
+                                    Mover para cima
+                                    <ArrowUp className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      void moveCategoryByOffset(category.id, 1)
+                                    }
+                                    disabled={
+                                      categoryPosition >=
+                                        categories.length - 1 ||
+                                      Boolean(categoryActionId)
+                                    }
+                                    className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold hover:bg-stone-100 disabled:opacity-40 dark:hover:bg-white/[0.06]"
+                                  >
+                                    Mover para baixo
+                                    <ArrowDown className="h-3.5 w-3.5" />
+                                  </button>
+                                  <div className="my-1 h-px bg-stone-200 dark:bg-white/[0.07]" />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setDeletingCategory(category);
+                                      setOpenCategoryMenuId(null);
+                                    }}
+                                    className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold text-red-500 hover:bg-red-500 hover:text-white"
+                                  >
+                                    Excluir categoria
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           )}
-                        </div>
+                        </>
                       )}
                     </div>
 
-                    {isVoice && sortedConnectedUsers.length > 0 && (
-                      <div className="ml-7 mt-0.5 space-y-0.5 pb-1">
-                        {sortedConnectedUsers.map((presence) => {
-                          const member = getVoiceMember(presence.userId);
-                          const user = member?.user ?? member;
-                          const isCurrentUser = presence.userId === currentUserId;
+                    {!isCollapsed && (
+                      <div className="space-y-0.5">
+                        {channels.map((channel: any) => {
+                          const channelId = String(channel.id);
+                          const channelIndex = channels.findIndex(
+                            (item) => String(item.id) === channelId,
+                          );
+                          const isVoice = channel.type === "GUILD_VOICE";
+                          const isActive =
+                            String(activeChannel?.id ?? "") === channelId;
+                          const connectedUsers = voiceUsers[channelId] ?? [];
+                          const isConnectedVoice =
+                            isVoice &&
+                            String(displayedVoiceChannel?.id ?? "") ===
+                              channelId;
+                          const userLimit = Number(channel?.userLimit ?? 0);
+                          const isFull =
+                            userLimit > 0 && connectedUsers.length >= userLimit;
+                          const sortedConnectedUsers = [...connectedUsers].sort(
+                            (left, right) => {
+                              if (left.userId === currentUserId) return -1;
+                              if (right.userId === currentUserId) return 1;
+                              const leftMember = getVoiceMember(left.userId);
+                              const rightMember = getVoiceMember(right.userId);
+                              const leftUser = leftMember?.user ?? leftMember;
+                              const rightUser =
+                                rightMember?.user ?? rightMember;
+                              return String(
+                                leftUser?.globalName ??
+                                  leftUser?.username ??
+                                  "",
+                              ).localeCompare(
+                                String(
+                                  rightUser?.globalName ??
+                                    rightUser?.username ??
+                                    "",
+                                ),
+                                "pt-BR",
+                              );
+                            },
+                          );
 
                           return (
-                            <button
-                              key={`${channelId}:${presence.userId}`}
-                              type="button"
-                              onClick={() => handleChannelClick(channel)}
-                              className="group/member flex w-full min-w-0 items-center gap-2 rounded-xl px-1.5 py-1.5 text-left text-[11px] text-stone-500 transition hover:bg-stone-200/70 hover:text-stone-800 dark:text-zinc-500 dark:hover:bg-white/[0.045] dark:hover:text-zinc-200"
+                            <div
+                              key={channelId}
+                              onDragOver={(event) =>
+                                handleDragOver(event, channelId)
+                              }
+                              onDrop={handleDrop}
+                              className="relative"
                             >
-                              <div className="relative shrink-0">
-                                <Avatar
-                                  avatarUrl={user?.avatarUrl}
-                                  username={user?.username}
-                                  globalName={user?.globalName}
-                                  className={`h-6 w-6 ${
-                                    presence.speaking
-                                      ? "ring-2 ring-emerald-400 ring-offset-1 ring-offset-stone-100 dark:ring-offset-[#111214]"
-                                      : ""
+                              {dropTarget?.channelId === channelId && (
+                                <span
+                                  className={`pointer-events-none absolute inset-x-1 z-30 h-0.5 rounded-full bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.7)] ${
+                                    dropTarget.position === "before"
+                                      ? "top-0"
+                                      : "bottom-0"
                                   }`}
                                 />
-                                <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-stone-100 bg-emerald-500 dark:border-[#111214]" />
+                              )}
+
+                              <div
+                                className={`group/channel flex min-h-9 items-center rounded-xl transition ${
+                                  isActive
+                                    ? "bg-stone-200 text-stone-900 dark:bg-white/[0.08] dark:text-white"
+                                    : "text-stone-600 hover:bg-stone-200/70 hover:text-stone-900 dark:text-zinc-500 dark:hover:bg-white/[0.045] dark:hover:text-zinc-200"
+                                } ${draggingChannelId === channelId ? "opacity-40" : ""}`}
+                              >
+                                {canManageChannels && !searchQuery && (
+                                  <button
+                                    type="button"
+                                    draggable={!isReordering}
+                                    onDragStart={(event) => {
+                                      event.dataTransfer.effectAllowed = "move";
+                                      event.dataTransfer.setData(
+                                        "text/plain",
+                                        channelId,
+                                      );
+                                      setDraggingChannelId(channelId);
+                                    }}
+                                    onDragEnd={() => {
+                                      setDraggingChannelId(null);
+                                      setDropTarget(null);
+                                    }}
+                                    className="hidden h-8 w-5 shrink-0 cursor-grab items-center justify-center text-stone-400 active:cursor-grabbing group-hover/channel:flex dark:text-zinc-600"
+                                    title="Arrastar canal"
+                                    aria-label={`Mover ${channel.name}`}
+                                  >
+                                    <GripVertical className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleChannelClick(channel)}
+                                  className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left"
+                                >
+                                  {isVoice ? (
+                                    <Volume2
+                                      className={`h-4 w-4 shrink-0 ${
+                                        isConnectedVoice
+                                          ? "text-emerald-500"
+                                          : ""
+                                      }`}
+                                    />
+                                  ) : (
+                                    <Hash className="h-4 w-4 shrink-0" />
+                                  )}
+                                  <span className="min-w-0 flex-1 truncate text-xs font-semibold">
+                                    {channel.name}
+                                  </span>
+                                  {isVoice && connectedUsers.length > 0 && (
+                                    <span
+                                      className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold tabular-nums ${
+                                        isFull
+                                          ? "bg-red-500/10 text-red-500"
+                                          : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                                      }`}
+                                    >
+                                      {connectedUsers.length}
+                                      {userLimit > 0 ? `/${userLimit}` : ""}
+                                    </span>
+                                  )}
+                                </button>
+
+                                {canManageChannels && (
+                                  <div
+                                    className="relative shrink-0 pr-1"
+                                    data-channel-actions
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        setOpenChannelMenuId((current) =>
+                                          current === channelId
+                                            ? null
+                                            : channelId,
+                                        );
+                                      }}
+                                      className={`flex h-7 w-7 items-center justify-center rounded-lg transition hover:bg-black/5 dark:hover:bg-white/[0.06] ${
+                                        openChannelMenuId === channelId
+                                          ? "opacity-100"
+                                          : "opacity-0 group-hover/channel:opacity-100"
+                                      }`}
+                                      aria-label={`Ações de ${channel.name}`}
+                                    >
+                                      <MoreHorizontal className="h-4 w-4" />
+                                    </button>
+
+                                    {openChannelMenuId === channelId && (
+                                      <div className="absolute right-0 top-8 z-[70] w-44 rounded-2xl border border-stone-200 bg-white p-1.5 shadow-2xl shadow-black/20 dark:border-white/10 dark:bg-[#1a1b20]">
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            openEditChannel(channel)
+                                          }
+                                          className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold transition hover:bg-indigo-500 hover:text-white"
+                                        >
+                                          Editar canal
+                                          <Pencil className="h-3.5 w-3.5" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            moveChannelByOffset(channelId, -1)
+                                          }
+                                          disabled={
+                                            channelIndex <= 0 || isReordering
+                                          }
+                                          className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold transition hover:bg-stone-100 disabled:opacity-40 dark:hover:bg-white/[0.06]"
+                                        >
+                                          Mover para cima
+                                          <ArrowUp className="h-3.5 w-3.5" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            moveChannelByOffset(channelId, 1)
+                                          }
+                                          disabled={
+                                            channelIndex >=
+                                              channels.length - 1 ||
+                                            isReordering
+                                          }
+                                          className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold transition hover:bg-stone-100 disabled:opacity-40 dark:hover:bg-white/[0.06]"
+                                        >
+                                          Mover para baixo
+                                          <ArrowDown className="h-3.5 w-3.5" />
+                                        </button>
+                                        <div className="my-1 h-px bg-stone-200 dark:bg-white/[0.07]" />
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setDeletingChannel(channel);
+                                            setOpenChannelMenuId(null);
+                                          }}
+                                          className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold text-red-500 transition hover:bg-red-500 hover:text-white"
+                                        >
+                                          Excluir canal
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
                               </div>
 
-                              <span className="min-w-0 flex-1 truncate font-medium">
-                                {user?.globalName || user?.username || "Usuário"}
-                                {isCurrentUser && (
-                                  <span className="ml-1 text-[8px] font-bold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
-                                    você
-                                  </span>
-                                )}
-                              </span>
+                              {isVoice && sortedConnectedUsers.length > 0 && (
+                                <div className="ml-7 mt-0.5 space-y-0.5 pb-1">
+                                  {sortedConnectedUsers.map((presence) => {
+                                    const member = getVoiceMember(
+                                      presence.userId,
+                                    );
+                                    const user = member?.user ?? member;
+                                    const isCurrentUser =
+                                      presence.userId === currentUserId;
 
-                              <span className="flex shrink-0 items-center gap-1">
-                                {presence.streaming && (
-                                  <Monitor className="h-3 w-3 text-emerald-500" aria-label="Transmitindo tela" />
-                                )}
-                                {presence.camera && (
-                                  <Video className="h-3 w-3 text-sky-500" aria-label="Câmera ligada" />
-                                )}
-                                {presence.deafened && (
-                                  <HeadphoneOff className="h-3 w-3 text-red-500" aria-label="Surdo" />
-                                )}
-                                {presence.muted && (
-                                  <MicOff className="h-3 w-3 text-red-500" aria-label="Microfone silenciado" />
-                                )}
-                                {presence.ping !== null && (
-                                  <span
-                                    className={`ml-0.5 flex items-center gap-0.5 text-[8px] font-bold tabular-nums ${getPingColor(presence.ping)}`}
-                                    title={`${presence.ping} ms`}
-                                  >
-                                    <Signal className="h-2.5 w-2.5" />
-                                    {presence.ping}
-                                  </span>
-                                )}
-                              </span>
-                            </button>
+                                    return (
+                                      <button
+                                        key={`${channelId}:${presence.userId}`}
+                                        type="button"
+                                        onClick={() =>
+                                          handleChannelClick(channel)
+                                        }
+                                        className="group/member flex w-full min-w-0 items-center gap-2 rounded-xl px-1.5 py-1.5 text-left text-[11px] text-stone-500 transition hover:bg-stone-200/70 hover:text-stone-800 dark:text-zinc-500 dark:hover:bg-white/[0.045] dark:hover:text-zinc-200"
+                                      >
+                                        <div className="relative shrink-0">
+                                          <Avatar
+                                            avatarUrl={user?.avatarUrl}
+                                            username={user?.username}
+                                            globalName={user?.globalName}
+                                            className={`h-6 w-6 ${
+                                              presence.speaking
+                                                ? "ring-2 ring-emerald-400 ring-offset-1 ring-offset-stone-100 dark:ring-offset-[#111214]"
+                                                : ""
+                                            }`}
+                                          />
+                                          <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-stone-100 bg-emerald-500 dark:border-[#111214]" />
+                                        </div>
+
+                                        <span className="min-w-0 flex-1 truncate font-medium">
+                                          {user?.globalName ||
+                                            user?.username ||
+                                            "Usuário"}
+                                          {isCurrentUser && (
+                                            <span className="ml-1 text-[8px] font-bold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+                                              você
+                                            </span>
+                                          )}
+                                        </span>
+
+                                        <span className="flex shrink-0 items-center gap-1">
+                                          {presence.streaming && (
+                                            <Monitor
+                                              className="h-3 w-3 text-emerald-500"
+                                              aria-label="Transmitindo tela"
+                                            />
+                                          )}
+                                          {presence.camera && (
+                                            <Video
+                                              className="h-3 w-3 text-sky-500"
+                                              aria-label="Câmera ligada"
+                                            />
+                                          )}
+                                          {presence.deafened && (
+                                            <HeadphoneOff
+                                              className="h-3 w-3 text-red-500"
+                                              aria-label="Surdo"
+                                            />
+                                          )}
+                                          {presence.muted && (
+                                            <MicOff
+                                              className="h-3 w-3 text-red-500"
+                                              aria-label="Microfone silenciado"
+                                            />
+                                          )}
+                                          {presence.ping !== null && (
+                                            <span
+                                              className={`ml-0.5 flex items-center gap-0.5 text-[8px] font-bold tabular-nums ${getPingColor(presence.ping)}`}
+                                              title={`${presence.ping} ms`}
+                                            >
+                                              <Signal className="h-2.5 w-2.5" />
+                                              {presence.ping}
+                                            </span>
+                                          )}
+                                        </span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
                           );
                         })}
                       </div>
                     )}
-                  </div>
+                  </section>
                 );
               })}
 
-              {visibleChannels.length === 0 && (
+              {displayedChannelCount === 0 && (
                 <div className="mx-1 mt-4 rounded-2xl border border-dashed border-stone-300 px-3 py-5 text-center dark:border-white/[0.08]">
                   <Search className="mx-auto h-5 w-5 text-stone-400 dark:text-zinc-600" />
                   <p className="mt-2 text-[10px] font-semibold text-stone-500 dark:text-zinc-500">
@@ -1121,10 +1632,14 @@ export default function ChannelsSidebar({
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
-                  {displayedVoicePresence ? "Voz conectada" : "Conectando à voz"}
+                  {displayedVoicePresence
+                    ? "Voz conectada"
+                    : "Conectando à voz"}
                   {displayedVoicePresence?.ping !== null &&
                     displayedVoicePresence?.ping !== undefined && (
-                      <span className={`tabular-nums ${getPingColor(displayedVoicePresence.ping)}`}>
+                      <span
+                        className={`tabular-nums ${getPingColor(displayedVoicePresence.ping)}`}
+                      >
                         {displayedVoicePresence.ping} ms
                       </span>
                     )}
@@ -1186,22 +1701,20 @@ export default function ChannelsSidebar({
               Tipo de canal
             </label>
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
-              {(
-                [
-                  {
-                    type: "GUILD_TEXT" as const,
-                    label: "Texto",
-                    description: "Mensagens, arquivos e conversas.",
-                    icon: Hash,
-                  },
-                  {
-                    type: "GUILD_VOICE" as const,
-                    label: "Voz",
-                    description: "Voz, vídeo e transmissão de tela.",
-                    icon: Volume2,
-                  },
-                ]
-              ).map((option) => {
+              {[
+                {
+                  type: "GUILD_TEXT" as const,
+                  label: "Texto",
+                  description: "Mensagens, arquivos e conversas.",
+                  icon: Hash,
+                },
+                {
+                  type: "GUILD_VOICE" as const,
+                  label: "Voz",
+                  description: "Voz, vídeo e transmissão de tela.",
+                  icon: Volume2,
+                },
+              ].map((option) => {
                 const Icon = option.icon;
                 const selected = channelType === option.type;
                 return (
@@ -1215,7 +1728,9 @@ export default function ChannelsSidebar({
                         : "border-zinc-200 bg-zinc-50 hover:border-zinc-300 dark:border-white/[0.07] dark:bg-white/[0.03] dark:hover:border-white/15"
                     }`}
                   >
-                    <span className={`mt-0.5 flex h-8 w-8 items-center justify-center rounded-xl ${selected ? "bg-indigo-500 text-white" : "bg-zinc-200 text-zinc-500 dark:bg-white/[0.06]"}`}>
+                    <span
+                      className={`mt-0.5 flex h-8 w-8 items-center justify-center rounded-xl ${selected ? "bg-indigo-500 text-white" : "bg-zinc-200 text-zinc-500 dark:bg-white/[0.06]"}`}
+                    >
                       <Icon className="h-4 w-4" />
                     </span>
                     <span className="min-w-0">
@@ -1248,12 +1763,37 @@ export default function ChannelsSidebar({
                 onKeyDown={(event) => {
                   if (event.key === "Enter") void handleCreateChannel();
                 }}
-                placeholder={channelType === "GUILD_TEXT" ? "novo-canal" : "Sala de voz"}
+                placeholder={
+                  channelType === "GUILD_TEXT" ? "novo-canal" : "Sala de voz"
+                }
                 maxLength={100}
                 autoFocus
                 className="min-w-0 flex-1 bg-transparent text-sm text-zinc-900 outline-none placeholder:text-zinc-400 dark:text-zinc-100"
               />
             </div>
+          </label>
+
+          <label className="block space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">
+              Categoria
+            </span>
+            <select
+              value={createChannelCategoryId}
+              onChange={(event) =>
+                setCreateChannelCategoryId(event.target.value)
+              }
+              className="h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none focus:border-indigo-500 dark:border-white/10 dark:bg-[#111214] dark:text-white"
+            >
+              <option value="">Sem categoria</option>
+              {categories
+                .slice()
+                .sort((left, right) => left.position - right.position)
+                .map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+            </select>
           </label>
 
           <div className="flex justify-end gap-2 pt-1">
@@ -1271,72 +1811,167 @@ export default function ChannelsSidebar({
               disabled={!channelName.trim() || isCreatingChannel}
               className="flex min-w-28 items-center justify-center gap-2 rounded-xl bg-indigo-500 px-4 py-2 text-xs font-bold text-white transition hover:bg-indigo-400 disabled:opacity-50"
             >
-              {isCreatingChannel && <Loader2 className="h-4 w-4 animate-spin" />}
+              {isCreatingChannel && (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              )}
               {isCreatingChannel ? "Criando..." : "Criar canal"}
             </button>
           </div>
         </div>
       </Modal>
 
-      <Modal
+      <ChannelSettingsModal
         isOpen={Boolean(editingChannel)}
-        onClose={() => {
-          if (!channelActionId) setEditingChannel(null);
+        onClose={() => setEditingChannel(null)}
+        channel={editingChannel}
+        categories={categories}
+        onUpdated={(updatedChannel) => {
+          setOrderedChannels((current) =>
+            current.map((channel) =>
+              String(channel.id) === String(updatedChannel.id)
+                ? { ...channel, ...updatedChannel }
+                : channel,
+            ),
+          );
+          showFeedback({ type: "success", message: "Canal atualizado." });
+          router.refresh();
         }}
-        title="Editar canal"
+      />
+
+      <Modal
+        isOpen={isCreateCategoryModalOpen}
+        onClose={() => {
+          if (!categoryActionId) setIsCreateCategoryModalOpen(false);
+        }}
+        title="Criar categoria"
       >
         <div className="space-y-5">
-          <div className="flex items-center gap-3 rounded-2xl bg-zinc-100 p-3 dark:bg-white/[0.04]">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-500/10 text-indigo-500">
-              {editingChannel?.type === "GUILD_VOICE" ? (
-                <Volume2 className="h-4 w-4" />
-              ) : (
-                <Hash className="h-4 w-4" />
-              )}
-            </div>
-            <div className="min-w-0">
-              <p className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
-                {editingChannel?.type === "GUILD_VOICE" ? "Canal de voz" : "Canal de texto"}
-              </p>
-              <p className="mt-0.5 text-[10px] text-zinc-500">
-                Posição {Math.max(1, orderedChannels.findIndex((channel) => String(channel.id) === String(editingChannel?.id)) + 1)} de {orderedChannels.length}
-              </p>
-            </div>
-          </div>
-
           <label className="block space-y-2">
             <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">
-              Nome do canal
+              Nome da categoria
             </span>
             <input
-              value={editedChannelName}
-              onChange={(event) => setEditedChannelName(event.target.value)}
+              value={categoryName}
+              onChange={(event) => setCategoryName(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Enter") void handleEditChannel();
+                if (event.key === "Enter") void handleCreateCategory();
               }}
               maxLength={100}
               autoFocus
-              className="h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 dark:border-white/10 dark:bg-black/30 dark:text-zinc-100"
+              placeholder="Nova categoria"
+              className="h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 dark:border-white/10 dark:bg-black/30 dark:text-white"
             />
           </label>
-
           <div className="flex justify-end gap-2">
             <button
               type="button"
-              onClick={() => setEditingChannel(null)}
-              disabled={Boolean(channelActionId)}
-              className="rounded-xl px-4 py-2 text-xs font-bold text-zinc-500 transition hover:bg-zinc-100 dark:hover:bg-white/[0.06]"
+              onClick={() => setIsCreateCategoryModalOpen(false)}
+              disabled={Boolean(categoryActionId)}
+              className="rounded-xl px-4 py-2 text-xs font-bold text-zinc-500 hover:bg-zinc-100 dark:hover:bg-white/[0.06]"
             >
               Cancelar
             </button>
             <button
               type="button"
-              onClick={() => void handleEditChannel()}
-              disabled={!editedChannelName.trim() || Boolean(channelActionId)}
-              className="flex min-w-28 items-center justify-center gap-2 rounded-xl bg-indigo-500 px-4 py-2 text-xs font-bold text-white transition hover:bg-indigo-400 disabled:opacity-50"
+              onClick={() => void handleCreateCategory()}
+              disabled={!categoryName.trim() || Boolean(categoryActionId)}
+              className="flex min-w-28 items-center justify-center gap-2 rounded-xl bg-indigo-500 px-4 py-2 text-xs font-bold text-white hover:bg-indigo-400 disabled:opacity-50"
             >
-              {channelActionId && <Loader2 className="h-4 w-4 animate-spin" />}
+              {categoryActionId && <Loader2 className="h-4 w-4 animate-spin" />}
+              Criar categoria
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={Boolean(editingCategory)}
+        onClose={() => {
+          if (!categoryActionId) setEditingCategory(null);
+        }}
+        title="Renomear categoria"
+      >
+        <div className="space-y-5">
+          <label className="block space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">
+              Nome da categoria
+            </span>
+            <input
+              value={categoryName}
+              onChange={(event) => setCategoryName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void handleEditCategory();
+              }}
+              maxLength={100}
+              autoFocus
+              className="h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 dark:border-white/10 dark:bg-black/30 dark:text-white"
+            />
+          </label>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setEditingCategory(null)}
+              disabled={Boolean(categoryActionId)}
+              className="rounded-xl px-4 py-2 text-xs font-bold text-zinc-500 hover:bg-zinc-100 dark:hover:bg-white/[0.06]"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleEditCategory()}
+              disabled={!categoryName.trim() || Boolean(categoryActionId)}
+              className="flex min-w-28 items-center justify-center gap-2 rounded-xl bg-indigo-500 px-4 py-2 text-xs font-bold text-white hover:bg-indigo-400 disabled:opacity-50"
+            >
+              {categoryActionId && <Loader2 className="h-4 w-4 animate-spin" />}
               Salvar
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={Boolean(deletingCategory)}
+        onClose={() => {
+          if (!categoryActionId) setDeletingCategory(null);
+        }}
+        title="Excluir categoria"
+      >
+        <div className="space-y-5">
+          <div className="flex gap-3 rounded-2xl border border-red-400/15 bg-red-500/[0.07] p-4">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-500/10 text-red-500">
+              <AlertTriangle className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                Excluir {deletingCategory?.name}?
+              </p>
+              <p className="mt-1 text-xs leading-5 text-zinc-500">
+                Os canais não serão excluídos; eles serão movidos para Sem
+                categoria.
+              </p>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setDeletingCategory(null)}
+              disabled={Boolean(categoryActionId)}
+              className="rounded-xl px-4 py-2 text-xs font-bold text-zinc-500 hover:bg-zinc-100 dark:hover:bg-white/[0.06]"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleDeleteCategory()}
+              disabled={Boolean(categoryActionId)}
+              className="flex min-w-36 items-center justify-center gap-2 rounded-xl bg-red-500 px-4 py-2 text-xs font-bold text-white hover:bg-red-400 disabled:opacity-50"
+            >
+              {categoryActionId ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
+              Excluir categoria
             </button>
           </div>
         </div>
@@ -1359,7 +1994,8 @@ export default function ChannelsSidebar({
                 Excluir {deletingChannel?.name}?
               </p>
               <p className="mt-1 text-xs leading-5 text-zinc-500">
-                Esta ação é permanente. Mensagens e configurações associadas ao canal também podem ser removidas pelo servidor.
+                Esta ação é permanente. Mensagens e configurações associadas ao
+                canal também podem ser removidas pelo servidor.
               </p>
             </div>
           </div>

@@ -1,3 +1,86 @@
 "use server";
-import { db } from '@/lib/db'; import { getCurrentUser } from '@/lib/current-user'; import { revalidatePath } from 'next/cache'; import { Permissions } from '@/lib/permissions'; import { requirePermission } from '@/lib/permissions.server';
-export async function createChannel(guildId:string,name:string,type:'GUILD_TEXT'|'GUILD_VOICE'){const u=await requirePermission(guildId,Permissions.MANAGE_CHANNELS);const n=name.trim().toLowerCase().replace(/\s+/g,'-').replace(/[^\p{L}\p{N}_-]/gu,'').slice(0,100);if(!n)throw new Error('Nome de canal inválido.');const max=await db.channel.aggregate({where:{guildId},_max:{position:true}});const c=await db.channel.create({data:{guildId,name:n,type,position:(max._max.position??-1)+1}});await db.auditLog.create({data:{guildId,actorId:u.id,action:'CHANNEL_CREATE',targetId:c.id,metadata:{name:n,type}}});revalidatePath(`/channels/${guildId}`);return c;}
+
+import { revalidatePath } from "next/cache";
+
+import { db } from "@/lib/db";
+import { Permissions } from "@/lib/permissions";
+import { requirePermission } from "@/lib/permissions.server";
+
+type CreatableChannelType = "GUILD_TEXT" | "GUILD_VOICE";
+
+function normalizeChannelName(name: string, type: CreatableChannelType) {
+  const normalized = name.trim().replace(/\s+/g, " ").slice(0, 100);
+
+  if (type === "GUILD_VOICE") {
+    return normalized;
+  }
+
+  return normalized
+    .toLocaleLowerCase("pt-BR")
+    .replace(/\s+/g, "-")
+    .replace(/[^\p{L}\p{N}_-]/gu, "");
+}
+
+export async function createChannel(
+  guildId: string,
+  name: string,
+  type: CreatableChannelType,
+  categoryId?: string | null,
+) {
+  const actor = await requirePermission(guildId, Permissions.MANAGE_CHANNELS);
+  const normalizedName = normalizeChannelName(name, type);
+
+  if (!normalizedName) {
+    throw new Error("Nome de canal inválido.");
+  }
+
+  if (categoryId) {
+    const category = await db.category.findFirst({
+      where: { id: categoryId, guildId },
+      select: { id: true },
+    });
+
+    if (!category) {
+      throw new Error("Categoria inválida.");
+    }
+  }
+
+  const channel = await db.$transaction(async (transaction) => {
+    const maximumPosition = await transaction.channel.aggregate({
+      where: {
+        guildId,
+        categoryId: categoryId ?? null,
+      },
+      _max: { position: true },
+    });
+
+    const created = await transaction.channel.create({
+      data: {
+        guildId,
+        name: normalizedName,
+        type,
+        categoryId: categoryId ?? null,
+        position: (maximumPosition._max.position ?? -1) + 1,
+      },
+    });
+
+    await transaction.auditLog.create({
+      data: {
+        guildId,
+        actorId: actor.id,
+        action: "CHANNEL_CREATE",
+        targetId: created.id,
+        metadata: {
+          name: normalizedName,
+          type,
+          categoryId: categoryId ?? null,
+        },
+      },
+    });
+
+    return created;
+  });
+
+  revalidatePath(`/channels/${guildId}`);
+  return channel;
+}

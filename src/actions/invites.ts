@@ -36,11 +36,9 @@ export async function acceptGuildInvite(code: string) {
     throw new Error("INVALID_INVITE");
   }
 
-  return db.$transaction(async (tx) => {
+  const result = await db.$transaction(async (tx) => {
     const invite = await tx.invite.findUnique({
-      where: {
-        code: normalizedCode,
-      },
+      where: { code: normalizedCode },
       include: {
         guild: {
           select: {
@@ -48,101 +46,143 @@ export async function acceptGuildInvite(code: string) {
             name: true,
             iconUrl: true,
             bannerUrl: true,
+            vanityUrl: true,
           },
         },
       },
     });
 
-    if (!invite) {
+    const vanityGuild = invite
+      ? null
+      : await tx.guild.findUnique({
+          where: { vanityUrl: normalizedCode.toLowerCase() },
+          select: {
+            id: true,
+            name: true,
+            iconUrl: true,
+            bannerUrl: true,
+            vanityUrl: true,
+          },
+        });
+
+    if (!invite && !vanityGuild) {
       throw new Error("INVITE_NOT_FOUND");
     }
 
-    if (invite.expiresAt && invite.expiresAt.getTime() <= Date.now()) {
+    if (invite?.expiresAt && invite.expiresAt.getTime() <= Date.now()) {
       throw new Error("INVITE_EXPIRED");
     }
 
-    if (invite.maxUses > 0 && invite.uses >= invite.maxUses) {
+    if (invite && invite.maxUses > 0 && invite.uses >= invite.maxUses) {
       throw new Error("INVITE_EXHAUSTED");
+    }
+
+    const guild = invite?.guild ?? vanityGuild!;
+    const guildId = guild.id;
+
+    const ban = await tx.guildBan.findUnique({
+      where: {
+        guildId_userId: {
+          guildId,
+          userId: user.id,
+        },
+      },
+      select: { id: true },
+    });
+
+    if (ban) {
+      throw new Error("INVITE_BANNED");
     }
 
     const existingMember = await tx.member.findUnique({
       where: {
         userId_guildId: {
           userId: user.id,
-          guildId: invite.guildId,
+          guildId,
         },
       },
-      select: {
-        id: true,
-      },
+      select: { id: true },
     });
 
     if (existingMember) {
       return {
         alreadyMember: true,
-        guildId: invite.guildId,
+        guildId,
+        guild,
       };
     }
 
-    // Buscamos o cargo padrão
     let everyoneRole = await tx.role.findFirst({
       where: {
-        guildId: invite.guildId,
+        guildId,
         isDefault: true,
       },
-      select: {
-        id: true,
-      },
+      select: { id: true },
     });
 
-    // FAILSAFE: Se o cargo padrão não existir, nós criamos ele na hora pra não quebrar a aplicação!
     if (!everyoneRole) {
       everyoneRole = await tx.role.create({
         data: {
           name: "@everyone",
           position: 0,
           isDefault: true,
-          permissions: "0", // Permissões base
-          guildId: invite.guildId,
+          permissions: (
+            Permissions.VIEW_CHANNEL |
+            Permissions.SEND_MESSAGES |
+            Permissions.READ_MESSAGE_HISTORY |
+            Permissions.ADD_REACTIONS |
+            Permissions.CONNECT |
+            Permissions.SPEAK
+          ).toString(),
+          guildId,
         },
-        select: {
-          id: true,
+        select: { id: true },
+      });
+    }
+
+    await tx.member.create({
+      data: {
+        userId: user.id,
+        guildId,
+        roles: {
+          connect: { id: everyoneRole.id },
+        },
+      },
+    });
+
+    if (invite) {
+      await tx.invite.update({
+        where: { id: invite.id },
+        data: {
+          uses: { increment: 1 },
         },
       });
     }
 
-    // Agora sim, criamos o membro conectando ele ao cargo de forma segura
-    await tx.member.create({
+    await tx.auditLog.create({
       data: {
-        userId: user.id,
-        guildId: invite.guildId,
-        roles: {
-          connect: {
-            id: everyoneRole.id,
-          },
+        guildId,
+        actorId: user.id,
+        action: "MEMBER_JOIN",
+        targetId: user.id,
+        metadata: {
+          source: invite ? "INVITE" : "VANITY",
+          inviteId: invite?.id ?? null,
         },
       },
     });
-
-    await tx.invite.update({
-      where: {
-        id: invite.id,
-      },
-      data: {
-        uses: {
-          increment: 1,
-        },
-      },
-    });
-
-    await redis.del(`user:${user.id}:guilds`);
 
     return {
       alreadyMember: false,
-      guildId: invite.guildId,
-      guild: invite.guild,
+      guildId,
+      guild,
     };
   });
+
+  await redis.del(`user:${user.id}:guilds`);
+  revalidatePath(`/channels/${result.guildId}`);
+
+  return result;
 }
 
 async function generateUniqueInviteCode() {
