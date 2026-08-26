@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Check,
   CircleSlash2,
@@ -15,7 +16,6 @@ import {
 
 import { Permissions } from "@/lib/permissions";
 
-import Modal from "../Modal";
 
 type PermissionState = "inherit" | "allow" | "deny";
 type SettingsTab = "general" | "permissions";
@@ -540,382 +540,482 @@ export default function ChannelSettingsModal({
     }
   };
 
-  return (
-    <Modal
-      isOpen={isOpen}
-      onClose={() => {
-        if (!isSaving) onClose();
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !isSaving) {
+        onClose();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen, isSaving, onClose]);
+
+  if (!isMounted || !isOpen || !channel) return null;
+
+  const scrollbarClass =
+    "[scrollbar-width:thin] [scrollbar-color:rgb(161_161_170)_transparent] dark:[scrollbar-color:rgb(82_82_91)_transparent] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-zinc-300 dark:[&::-webkit-scrollbar-thumb]:bg-zinc-700";
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[1000] flex h-[100dvh] w-screen items-center justify-center overflow-hidden bg-black/70 p-3 backdrop-blur-sm"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !isSaving) onClose();
       }}
-      title={channel ? `Configurar ${channel.name}` : "Configurar canal"}
-      
     >
-      <div className="w-full max-w-full">
-        <div className="mb-4 flex gap-1 rounded-2xl bg-zinc-100 p-1 dark:bg-white/[0.04]">
-          {[
-            {
-              id: "general" as const,
-              label: "Visão geral",
-              icon: isVoice ? Volume2 : Hash,
-            },
-            {
-              id: "permissions" as const,
-              label: "Permissões",
-              icon: ShieldCheck,
-            },
-          ].map((item) => {
-            const Icon = item.icon;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => {
-                  setTab(item.id);
-                  setError(null);
-                  setSuccess(null);
-                }}
-                className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs font-bold transition ${
-                  tab === item.id
-                    ? "bg-white text-indigo-600 shadow-sm dark:bg-white/[0.08] dark:text-indigo-300"
-                    : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200"
-                }`}
-              >
-                <Icon className="h-4 w-4" />
-                {item.label}
-              </button>
-            );
-          })}
-        </div>
-
-        {error && (
-          <div className="mb-4 rounded-xl border border-red-400/20 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-600 dark:text-red-300">
-            {error}
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Configurar ${channel.name}`}
+        className="flex h-[min(780px,calc(100dvh-24px))] max-h-[calc(100dvh-24px)] w-[min(1120px,calc(100vw-24px))] min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-white/10 dark:bg-[#111214]"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="flex h-16 shrink-0 items-center justify-between gap-4 border-b border-zinc-200 px-5 dark:border-white/[0.08]">
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-500">
+              Configurações do canal
+            </p>
+            <h2 className="mt-0.5 truncate text-base font-bold text-zinc-950 dark:text-white">
+              {channel.name}
+            </h2>
           </div>
-        )}
-        {success && (
-          <div className="mb-4 flex items-center gap-2 rounded-xl border border-emerald-400/20 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
-            <Check className="h-4 w-4" />
-            {success}
-          </div>
-        )}
 
-        {tab === "general" ? (
-          <div className="space-y-4">
-            <label className="block space-y-2">
-              <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">
-                Nome do canal
-              </span>
-              <input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                maxLength={100}
-                className="h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 dark:border-white/10 dark:bg-black/30 dark:text-white"
-              />
-            </label>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isSaving}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/[0.06] dark:hover:text-white"
+            aria-label="Fechar configurações"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </header>
 
-            <label className="block space-y-2">
-              <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">
-                Categoria
-              </span>
-              <select
-                value={categoryId}
-                onChange={(event) => setCategoryId(event.target.value)}
-                className="h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-indigo-500 dark:border-white/10 dark:bg-[#111214] dark:text-white"
-              >
-                <option value="">Sem categoria</option>
-                {categories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          <aside className="flex w-[190px] shrink-0 flex-col border-r border-zinc-200 bg-zinc-50/70 p-3 dark:border-white/[0.08] dark:bg-black/20">
+            <div className="space-y-1">
+              {[
+                {
+                  id: "general" as const,
+                  label: "Visão geral",
+                  icon: isVoice ? Volume2 : Hash,
+                },
+                {
+                  id: "permissions" as const,
+                  label: "Permissões",
+                  icon: ShieldCheck,
+                },
+              ].map((item) => {
+                const Icon = item.icon;
 
-            {!isVoice && (
-              <>
-                <label className="block space-y-2">
-                  <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">
-                    Tópico
-                  </span>
-                  <textarea
-                    value={topic}
-                    onChange={(event) => setTopic(event.target.value)}
-                    maxLength={1024}
-                    rows={3}
-                    placeholder="Sobre o que é este canal?"
-                    className="w-full resize-none rounded-xl border border-zinc-300 bg-white p-3 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 dark:border-white/10 dark:bg-black/30 dark:text-white"
-                  />
-                </label>
-                <label className="flex items-center justify-between rounded-2xl border border-zinc-200 p-3 dark:border-white/[0.07]">
-                  <span>
-                    <span className="block text-xs font-bold text-zinc-900 dark:text-zinc-100">
-                      Canal com restrição de idade
-                    </span>
-                    <span className="mt-0.5 block text-[10px] text-zinc-500">
-                      Marca o conteúdo deste canal como NSFW.
-                    </span>
-                  </span>
-                  <input
-                    type="checkbox"
-                    checked={nsfw}
-                    onChange={(event) => setNsfw(event.target.checked)}
-                    className="h-4 w-4 accent-indigo-500"
-                  />
-                </label>
-              </>
-            )}
-
-            {isVoice && (
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="block space-y-2">
-                  <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">
-                    Limite de usuários
-                  </span>
-                  <input
-                    type="number"
-                    min={0}
-                    max={99}
-                    value={userLimit}
-                    onChange={(event) =>
-                      setUserLimit(Number(event.target.value))
-                    }
-                    className="h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-indigo-500 dark:border-white/10 dark:bg-black/30 dark:text-white"
-                  />
-                </label>
-                <label className="block space-y-2">
-                  <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">
-                    Bitrate
-                  </span>
-                  <select
-                    value={bitrate}
-                    onChange={(event) => setBitrate(Number(event.target.value))}
-                    className="h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-indigo-500 dark:border-white/10 dark:bg-[#111214] dark:text-white"
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      setTab(item.id);
+                      setError(null);
+                      setSuccess(null);
+                    }}
+                    className={`flex h-10 w-full min-w-0 items-center gap-2.5 rounded-xl px-3 text-left text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 ${
+                      tab === item.id
+                        ? "bg-indigo-500 text-white shadow-sm"
+                        : "text-zinc-600 hover:bg-zinc-200/70 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-white/[0.06] dark:hover:text-white"
+                    }`}
                   >
-                    {[64000, 96000, 128000, 256000, 384000].map((value) => (
-                      <option key={value} value={value}>
-                        {value / 1000} kbps
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            )}
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={onClose}
-                disabled={isSaving}
-                className="rounded-xl px-4 py-2 text-xs font-bold text-zinc-500 hover:bg-zinc-100 dark:hover:bg-white/[0.06]"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={() => void saveGeneralSettings()}
-                disabled={isSaving || !name.trim()}
-                className="flex min-w-32 items-center justify-center gap-2 rounded-xl bg-indigo-500 px-4 py-2 text-xs font-bold text-white hover:bg-indigo-400 disabled:opacity-50"
-              >
-                {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
-                Salvar alterações
-              </button>
+                    <Icon className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{item.label}</span>
+                  </button>
+                );
+              })}
             </div>
-          </div>
-        ) : (
-        <div className="flex flex-col md:flex-row gap-4 md:gap-2 w-full">
-  {/* PAINEL ESQUERDO (Lista de Cargos) */}
-  <div className="flex flex-col w-full shrink-0 md:w-64 lg:w-72 rounded-2xl border border-zinc-200 bg-zinc-50/70 p-2 dark:border-white/[0.07] dark:bg-black/20">
-    <label className="flex h-9 items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 dark:border-white/[0.07] dark:bg-white/[0.03]">
-      <Search className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
-      <input
-        value={roleSearch}
-        onChange={(event) => setRoleSearch(event.target.value)}
-        placeholder="Buscar cargo"
-        className="min-w-0 flex-1 bg-transparent text-xs outline-none dark:text-white"
-      />
-    </label>
+          </aside>
 
-    <div className="mt-2 max-h-[250px] md:max-h-[370px] space-y-1 overflow-y-auto">
-      {filteredRoles.map((role) => {
-        const overwrite = overwrites.find(
-          (entry) => entry.roleId === role.id,
-        );
-        return (
-          <button
-            key={role.id}
-            type="button"
-            onClick={() => {
-              setSelectedRoleId(role.id);
-              setError(null);
-              setSuccess(null);
-            }}
-            className={`flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left text-xs font-semibold transition ${
-              selectedRoleId === role.id
-                ? "bg-indigo-500 text-white"
-                : "text-zinc-600 hover:bg-zinc-200/70 dark:text-zinc-400 dark:hover:bg-white/[0.06]"
-            }`}
-          >
-            <span
-              className="h-2.5 w-2.5 shrink-0 rounded-full border border-black/10"
-              style={{ backgroundColor: role.color || "#99aab5" }}
-            />
-            <span className="min-w-0 flex-1 truncate">
-              {role.isDefault ? "@everyone" : role.name}
-            </span>
-            {overwrite && (
-              <span
-                className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                  selectedRoleId === role.id
-                    ? "bg-white"
-                    : "bg-indigo-500"
-                }`}
-                title="Possui permissões personalizadas"
-              />
-            )}
-          </button>
-        );
-      })}
-    </div>
-  </div>
+          <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            {(error || success) && (
+              <div className="shrink-0 px-4 pt-4">
+                {error && (
+                  <div className="rounded-xl border border-red-400/20 bg-red-500/10 px-3 py-2.5 text-xs font-semibold leading-5 text-red-600 dark:text-red-300">
+                    {error}
+                  </div>
+                )}
 
-  {/* PAINEL DIREITO (Edição de Permissões) */}
-  <div className="flex flex-col flex-1 min-w-0 rounded-2xl border border-zinc-200 dark:border-white/[0.07]">
-    {isLoadingPermissions ? (
-      <div className="flex h-full min-h-[350px] items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-indigo-500" />
-      </div>
-    ) : selectedRole ? (
-      <div className="flex h-full flex-col">
-        <div className="border-b border-zinc-200 px-4 py-3 dark:border-white/[0.07]">
-          <div className="flex items-center gap-2">
-            <span
-              className="h-3 w-3 shrink-0 rounded-full"
-              style={{
-                backgroundColor: selectedRole.color || "#99aab5",
-              }}
-            />
-            <span className="truncate text-sm font-bold text-zinc-900 dark:text-white">
-              {selectedRole.isDefault
-                ? "@everyone"
-                : selectedRole.name}
-            </span>
-          </div>
-          <p className="mt-1 text-[10px] leading-4 text-zinc-500">
-            Herdar usa as permissões do servidor. Permitir e Negar
-            sobrescrevem apenas neste canal.
-          </p>
-        </div>
-
-        {!canEditPermissions && (
-          <div className="m-3 rounded-xl border border-amber-400/20 bg-amber-500/10 px-3 py-2 text-[10px] font-semibold leading-4 text-amber-700 dark:text-amber-300">
-            Você precisa de Gerenciar Permissões para alterar os
-            cargos deste canal.
-          </div>
-        )}
-
-        <div className="max-h-[330px] md:max-h-[400px] flex-1 divide-y divide-zinc-200 overflow-y-auto dark:divide-white/[0.06]">
-          {visiblePermissions.map((permission) => {
-            const bit = Permissions[permission.key];
-            const state = getPermissionState(selectedDraft, bit);
-            return (
-              <div
-                key={permission.key}
-                className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div className="min-w-0 flex-1 pr-2">
-                  <p className="text-xs font-bold text-zinc-800 dark:text-zinc-100">
-                    {permission.label}
-                  </p>
-                  <p className="mt-0.5 text-[10px] leading-4 text-zinc-500">
-                    {permission.description}
-                  </p>
-                </div>
-                
-                {/* Botões de Herdar/Permitir/Negar */}
-                <div className="grid shrink-0 grid-cols-3 gap-1 rounded-xl bg-zinc-100 p-1 dark:bg-white/[0.05] sm:w-auto w-full">
-                  {[
-                    {
-                      value: "inherit" as const,
-                      label: "Herdar",
-                      icon: CircleSlash2,
-                    },
-                    {
-                      value: "allow" as const,
-                      label: "Permitir",
-                      icon: Check,
-                    },
-                    {
-                      value: "deny" as const,
-                      label: "Negar",
-                      icon: X,
-                    },
-                  ].map((option) => {
-                    const Icon = option.icon;
-                    const active = state === option.value;
-                    return (
-                      <button
-                        key={option.value}
-                        type="button"
-                        onClick={() =>
-                          setPermissionState(bit, option.value)
-                        }
-                        disabled={!canEditPermissions || isSaving}
-                        title={option.label}
-                        className={`flex h-8 items-center justify-center gap-1.5 rounded-lg px-2 text-[10px] font-bold transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                          active && option.value === "allow"
-                            ? "bg-emerald-500 text-white shadow-sm"
-                            : active && option.value === "deny"
-                              ? "bg-red-500 text-white shadow-sm"
-                              : active
-                                ? "bg-white text-zinc-700 shadow-sm dark:bg-zinc-700 dark:text-white"
-                                : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"
-                        }`}
-                      >
-                        <Icon className="h-3 w-3 shrink-0" />
-                        <span className="sm:hidden lg:inline">
-                          {option.label}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
+                {success && (
+                  <div className="flex min-w-0 items-start gap-2 rounded-xl border border-emerald-400/20 bg-emerald-500/10 px-3 py-2.5 text-xs font-semibold leading-5 text-emerald-700 dark:text-emerald-300">
+                    <Check className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span className="min-w-0 break-words">{success}</span>
+                  </div>
+                )}
               </div>
-            );
-          })}
-        </div>
-
-        {/* Rodapé de Ações */}
-        <div className="flex flex-col-reverse sm:flex-row items-center justify-between gap-3 border-t border-zinc-200 p-3 dark:border-white/[0.07]">
-          <button
-            type="button"
-            onClick={() => void resetRolePermissions()}
-            disabled={!canEditPermissions || isSaving}
-            className="flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl px-3 py-2 text-[11px] font-bold text-zinc-500 hover:bg-zinc-100 disabled:opacity-50 dark:hover:bg-white/[0.06]"
-          >
-            <RotateCcw className="h-3.5 w-3.5 shrink-0" />
-            Restaurar herança
-          </button>
-          <button
-            type="button"
-            onClick={() => void saveRolePermissions()}
-            disabled={!canEditPermissions || isSaving}
-            className="flex w-full sm:w-auto min-w-28 items-center justify-center gap-2 rounded-xl bg-indigo-500 px-4 py-2 text-[11px] font-bold text-white shadow-sm hover:bg-indigo-400 disabled:opacity-50"
-          >
-            {isSaving && (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
             )}
-            Salvar permissões
-          </button>
+
+            <div className="min-h-0 min-w-0 flex-1 overflow-hidden p-4">
+              {tab === "general" ? (
+                <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-white/[0.08] dark:bg-white/[0.015]">
+                  <div
+                    className={`min-h-0 min-w-0 flex-1 space-y-5 overflow-y-auto overscroll-contain p-5 ${scrollbarClass}`}
+                  >
+                    <label className="block min-w-0 space-y-2">
+                      <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">
+                        Nome do canal
+                      </span>
+                      <input
+                        value={name}
+                        onChange={(event) => setName(event.target.value)}
+                        maxLength={100}
+                        className="h-11 w-full min-w-0 rounded-xl border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 dark:border-white/10 dark:bg-black/30 dark:text-white"
+                      />
+                    </label>
+
+                    <label className="block min-w-0 space-y-2">
+                      <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">
+                        Categoria
+                      </span>
+                      <select
+                        value={categoryId}
+                        onChange={(event) => setCategoryId(event.target.value)}
+                        className="h-11 w-full min-w-0 rounded-xl border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 dark:border-white/10 dark:bg-[#111214] dark:text-white"
+                      >
+                        <option value="">Sem categoria</option>
+                        {categories.map((category) => (
+                          <option key={category.id} value={category.id}>
+                            {category.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    {!isVoice && (
+                      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_280px] gap-4">
+                        <label className="block min-w-0 space-y-2">
+                          <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">
+                            Tópico
+                          </span>
+                          <textarea
+                            value={topic}
+                            onChange={(event) => setTopic(event.target.value)}
+                            maxLength={1024}
+                            rows={5}
+                            placeholder="Sobre o que é este canal?"
+                            className="h-[138px] w-full min-w-0 resize-none rounded-xl border border-zinc-300 bg-white p-3 text-sm text-zinc-900 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 dark:border-white/10 dark:bg-black/30 dark:text-white"
+                          />
+                        </label>
+
+                        <label className="flex h-[138px] min-w-0 items-center justify-between gap-4 self-end rounded-2xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-white/[0.07] dark:bg-white/[0.02]">
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-xs font-bold text-zinc-900 dark:text-zinc-100">
+                              Restrição de idade
+                            </span>
+                            <span className="mt-1 block text-[10px] leading-4 text-zinc-500">
+                              Marca este canal como NSFW.
+                            </span>
+                          </span>
+                          <input
+                            type="checkbox"
+                            checked={nsfw}
+                            onChange={(event) => setNsfw(event.target.checked)}
+                            className="h-4 w-4 shrink-0 accent-indigo-500"
+                          />
+                        </label>
+                      </div>
+                    )}
+
+                    {isVoice && (
+                      <div className="grid min-w-0 grid-cols-2 gap-4">
+                        <label className="block min-w-0 space-y-2">
+                          <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">
+                            Limite de usuários
+                          </span>
+                          <input
+                            type="number"
+                            min={0}
+                            max={99}
+                            value={userLimit}
+                            onChange={(event) =>
+                              setUserLimit(Number(event.target.value))
+                            }
+                            className="h-11 w-full min-w-0 rounded-xl border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 dark:border-white/10 dark:bg-black/30 dark:text-white"
+                          />
+                        </label>
+
+                        <label className="block min-w-0 space-y-2">
+                          <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">
+                            Bitrate
+                          </span>
+                          <select
+                            value={bitrate}
+                            onChange={(event) =>
+                              setBitrate(Number(event.target.value))
+                            }
+                            className="h-11 w-full min-w-0 rounded-xl border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 dark:border-white/10 dark:bg-[#111214] dark:text-white"
+                          >
+                            {[64000, 96000, 128000, 256000, 384000].map(
+                              (value) => (
+                                <option key={value} value={value}>
+                                  {value / 1000} kbps
+                                </option>
+                              ),
+                            )}
+                          </select>
+                        </label>
+                      </div>
+                    )}
+                  </div>
+
+                  <footer className="flex h-16 shrink-0 items-center justify-end gap-2 border-t border-zinc-200 px-4 dark:border-white/[0.08]">
+                    <button
+                      type="button"
+                      onClick={onClose}
+                      disabled={isSaving}
+                      className="h-10 rounded-xl px-4 text-xs font-bold text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-950 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/[0.06] dark:hover:text-white"
+                    >
+                      Cancelar
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => void saveGeneralSettings()}
+                      disabled={isSaving || !name.trim()}
+                      className="flex h-10 min-w-36 items-center justify-center gap-2 rounded-xl bg-indigo-500 px-4 text-xs font-bold text-white transition hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+                      Salvar alterações
+                    </button>
+                  </footer>
+                </div>
+              ) : (
+                <div className="grid h-full min-h-0 min-w-0 grid-cols-[220px_minmax(0,1fr)] gap-3 overflow-hidden">
+                  <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50/70 dark:border-white/[0.07] dark:bg-black/20">
+                    <div className="shrink-0 border-b border-zinc-200 p-2 dark:border-white/[0.07]">
+                      <label className="flex h-10 min-w-0 items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 dark:border-white/[0.07] dark:bg-white/[0.03]">
+                        <Search className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
+                        <input
+                          value={roleSearch}
+                          onChange={(event) => setRoleSearch(event.target.value)}
+                          placeholder="Buscar cargo"
+                          className="min-w-0 flex-1 bg-transparent text-xs text-zinc-900 outline-none placeholder:text-zinc-400 dark:text-white"
+                        />
+                      </label>
+                    </div>
+
+                    <div
+                      className={`min-h-0 min-w-0 flex-1 space-y-1 overflow-y-auto overscroll-contain p-2 ${scrollbarClass}`}
+                    >
+                      {filteredRoles.length > 0 ? (
+                        filteredRoles.map((role) => {
+                          const overwrite = overwrites.find(
+                            (entry) => entry.roleId === role.id,
+                          );
+
+                          return (
+                            <button
+                              key={role.id}
+                              type="button"
+                              onClick={() => {
+                                setSelectedRoleId(role.id);
+                                setError(null);
+                                setSuccess(null);
+                              }}
+                              className={`flex h-10 w-full min-w-0 items-center gap-2 rounded-xl px-2.5 text-left text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 ${
+                                selectedRoleId === role.id
+                                  ? "bg-indigo-500 text-white"
+                                  : "text-zinc-600 hover:bg-zinc-200/70 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-white/[0.06] dark:hover:text-white"
+                              }`}
+                            >
+                              <span
+                                className="h-2.5 w-2.5 shrink-0 rounded-full border border-black/10"
+                                style={{
+                                  backgroundColor: role.color || "#99aab5",
+                                }}
+                              />
+                              <span className="min-w-0 flex-1 truncate">
+                                {role.isDefault ? "@everyone" : role.name}
+                              </span>
+                              {overwrite && (
+                                <span
+                                  className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                                    selectedRoleId === role.id
+                                      ? "bg-white"
+                                      : "bg-indigo-500"
+                                  }`}
+                                  title="Possui permissões personalizadas"
+                                />
+                              )}
+                            </button>
+                          );
+                        })
+                      ) : (
+                        <div className="flex h-24 items-center justify-center px-3 text-center text-[10px] font-medium text-zinc-500">
+                          Nenhum cargo encontrado.
+                        </div>
+                      )}
+                    </div>
+                  </section>
+
+                  <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-white/[0.07] dark:bg-white/[0.015]">
+                    {isLoadingPermissions ? (
+                      <div className="flex min-h-0 flex-1 items-center justify-center">
+                        <Loader2 className="h-6 w-6 animate-spin text-indigo-500" />
+                      </div>
+                    ) : selectedRole ? (
+                      <>
+                        <header className="flex min-h-[72px] shrink-0 items-center justify-between gap-4 border-b border-zinc-200 px-4 py-3 dark:border-white/[0.07]">
+                          <div className="min-w-0">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <span
+                                className="h-3 w-3 shrink-0 rounded-full"
+                                style={{
+                                  backgroundColor:
+                                    selectedRole.color || "#99aab5",
+                                }}
+                              />
+                              <span className="min-w-0 truncate text-sm font-bold text-zinc-900 dark:text-white">
+                                {selectedRole.isDefault
+                                  ? "@everyone"
+                                  : selectedRole.name}
+                              </span>
+                            </div>
+                            <p className="mt-1 truncate text-[10px] text-zinc-500">
+                              Herdar usa o servidor; Permitir e Negar sobrescrevem neste canal.
+                            </p>
+                          </div>
+
+                          {!canEditPermissions && (
+                            <span className="shrink-0 rounded-lg border border-amber-400/20 bg-amber-500/10 px-2.5 py-1.5 text-[10px] font-bold text-amber-700 dark:text-amber-300">
+                              Somente leitura
+                            </span>
+                          )}
+                        </header>
+
+                        <div
+                          className={`min-h-0 min-w-0 flex-1 divide-y divide-zinc-200 overflow-y-auto overscroll-contain dark:divide-white/[0.06] ${scrollbarClass}`}
+                        >
+                          {visiblePermissions.map((permission) => {
+                            const bit = Permissions[permission.key];
+                            const state = getPermissionState(selectedDraft, bit);
+
+                            return (
+                              <div
+                                key={permission.key}
+                                className="grid min-w-0 grid-cols-[minmax(0,1fr)_270px] items-center gap-4 px-4 py-3"
+                              >
+                                <div className="min-w-0">
+                                  <p className="truncate text-xs font-bold text-zinc-800 dark:text-zinc-100">
+                                    {permission.label}
+                                  </p>
+                                  <p className="mt-0.5 line-clamp-2 text-[10px] leading-4 text-zinc-500">
+                                    {permission.description}
+                                  </p>
+                                </div>
+
+                                <div className="grid min-w-0 shrink-0 grid-cols-3 rounded-xl bg-zinc-100 p-1 dark:bg-white/[0.05]">
+                                  {[
+                                    {
+                                      value: "inherit" as const,
+                                      label: "Herdar",
+                                      icon: CircleSlash2,
+                                    },
+                                    {
+                                      value: "allow" as const,
+                                      label: "Permitir",
+                                      icon: Check,
+                                    },
+                                    {
+                                      value: "deny" as const,
+                                      label: "Negar",
+                                      icon: X,
+                                    },
+                                  ].map((option) => {
+                                    const Icon = option.icon;
+                                    const active = state === option.value;
+
+                                    return (
+                                      <button
+                                        key={option.value}
+                                        type="button"
+                                        onClick={() =>
+                                          setPermissionState(bit, option.value)
+                                        }
+                                        disabled={
+                                          !canEditPermissions || isSaving
+                                        }
+                                        title={option.label}
+                                        aria-pressed={active}
+                                        className={`flex h-9 min-w-0 items-center justify-center gap-1 rounded-lg px-2 text-[10px] font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:cursor-not-allowed disabled:opacity-50 ${
+                                          active && option.value === "allow"
+                                            ? "bg-emerald-500 text-white"
+                                            : active && option.value === "deny"
+                                              ? "bg-red-500 text-white"
+                                              : active
+                                                ? "bg-white text-zinc-700 shadow-sm dark:bg-white/[0.09] dark:text-white"
+                                                : "text-zinc-500 hover:text-zinc-950 dark:hover:text-white"
+                                        }`}
+                                      >
+                                        <Icon className="h-3.5 w-3.5 shrink-0" />
+                                        <span className="truncate">
+                                          {option.label}
+                                        </span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        <footer className="flex h-16 shrink-0 items-center justify-between gap-3 border-t border-zinc-200 px-3 dark:border-white/[0.07]">
+                          <button
+                            type="button"
+                            onClick={() => void resetRolePermissions()}
+                            disabled={!canEditPermissions || isSaving}
+                            className="flex h-10 min-w-0 items-center justify-center gap-2 rounded-xl px-3 text-[10px] font-bold text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-950 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/[0.06] dark:hover:text-white"
+                          >
+                            <RotateCcw className="h-3.5 w-3.5 shrink-0" />
+                            <span className="truncate">Restaurar herança</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => void saveRolePermissions()}
+                            disabled={!canEditPermissions || isSaving}
+                            className="flex h-10 min-w-36 shrink-0 items-center justify-center gap-2 rounded-xl bg-indigo-500 px-4 text-[10px] font-bold text-white transition hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {isSaving && (
+                              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                            )}
+                            Salvar permissões
+                          </button>
+                        </footer>
+                      </>
+                    ) : (
+                      <div className="flex min-h-0 flex-1 items-center justify-center p-6 text-xs text-zinc-500">
+                        Selecione um cargo.
+                      </div>
+                    )}
+                  </section>
+                </div>
+              )}
+            </div>
+          </main>
         </div>
       </div>
-    ) : (
-      <div className="flex h-full min-h-[350px] items-center justify-center p-6 text-center text-xs text-zinc-500">
-        Selecione um cargo na lista para editar suas permissões.
-      </div>
-    )}
-  </div>
-</div>
-        )}
-      </div>
-    </Modal>
+    </div>,
+    document.body,
   );
 }
