@@ -2,9 +2,8 @@
 
 import { useMemo, useState } from "react";
 
-console.log("DIRECT_MESSAGE_CHAT_NOVO_CARREGADO");
-
 import ChatArea from "@/components/Guild/ChatArea";
+import type { CommandItem } from "@/components/SearchCommand";
 import type {
   DirectConversationSummary,
   DirectUser,
@@ -20,6 +19,7 @@ type Props = {
   onOpenProfile: (user: DirectUser) => void;
   onChanged: () => Promise<void> | void;
   onConversationRemoved: () => Promise<void> | void;
+  commandItems?: CommandItem[];
 };
 
 export default function DirectMessageChat({
@@ -29,6 +29,7 @@ export default function DirectMessageChat({
   onOpenProfile,
   onChanged,
   onConversationRemoved,
+  commandItems = [],
 }: Props) {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -81,6 +82,7 @@ export default function DirectMessageChat({
           mode="direct"
           onOpenDetails={handleOpenDetails}
           onDirectConversationChanged={onChanged}
+          commandItems={commandItems}
         />
       </main>
 

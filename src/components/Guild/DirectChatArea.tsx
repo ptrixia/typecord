@@ -10,6 +10,7 @@ export default function DirectChatArea({
   channels,
   onOpenDetails,
   onDirectConversationChanged,
+  commandItems,
 }: ChatAreaProps) {
   return (
     <TextChatArea
@@ -20,6 +21,7 @@ export default function DirectChatArea({
       mode="direct"
       onOpenDetails={onOpenDetails}
       onDirectConversationChanged={onDirectConversationChanged}
+      commandItems={commandItems}
     />
   );
 }

@@ -1,58 +1,76 @@
 "use client";
 
+import { AlertTriangle, Loader2 } from "lucide-react";
+
 import Modal from "./Modal";
 
-interface ConfirmModalProps {
+type ConfirmModalProps = {
   isOpen: boolean;
-  onClose: () => void;
-  onConfirm: () => void;
-  title?: string;
+  title: string;
   description: string;
-  confirmText?: string;
-  cancelText?: string;
-  variant?: "danger" | "default";
-  isLoading?: boolean;
-}
+  confirmLabel?: string;
+  cancelLabel?: string;
+  danger?: boolean;
+  loading?: boolean;
+  onConfirm: () => void;
+  onClose: () => void;
+};
 
 export default function ConfirmModal({
   isOpen,
-  onClose,
-  onConfirm,
-  title = "Você tem certeza?",
+  title,
   description,
-  confirmText = "Confirmar",
-  cancelText = "Cancelar",
-  variant = "default",
-  isLoading = false,
+  confirmLabel = "Confirmar",
+  cancelLabel = "Cancelar",
+  danger = false,
+  loading = false,
+  onConfirm,
+  onClose,
 }: ConfirmModalProps) {
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={title}>
-      <div className="space-y-4 pt-2">
-        <p className="text-sm text-zinc-600 dark:text-zinc-300">
-          {description}
-        </p>
-
-        <div className="flex items-center justify-end gap-3 pt-2">
-          <button
-            type="button"
-            disabled={isLoading}
-            onClick={onClose}
-            className="h-10 rounded-md px-4 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-          >
-            {cancelText}
-          </button>
-
-          <button
-            type="button"
-            disabled={isLoading}
-            onClick={onConfirm}
-            className={`h-10 rounded-md px-4 text-sm font-semibold text-white transition-colors disabled:opacity-50 ${
-              variant === "danger"
-                ? "bg-red-600 hover:bg-red-700 dark:bg-red-600 dark:hover:bg-red-700"
-                : "bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+    <Modal isOpen={isOpen} onClose={loading ? () => {} : onClose}>
+      <div className="space-y-5">
+        <div className="flex items-start gap-3">
+          <div
+            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+              danger
+                ? "bg-rose-500/10 text-rose-500"
+                : "bg-indigo-500/10 text-indigo-500"
             }`}
           >
-            {isLoading ? "Carregando..." : confirmText}
+            <AlertTriangle className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-lg font-black text-zinc-950 dark:text-white">
+              {title}
+            </h2>
+            <p className="mt-1 text-sm leading-6 text-zinc-600 dark:text-zinc-400">
+              {description}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            disabled={loading}
+            onClick={onClose}
+            className="h-10 rounded-lg px-4 text-sm font-bold text-zinc-600 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:text-zinc-300 dark:hover:bg-white/10"
+          >
+            {cancelLabel}
+          </button>
+          <button
+            type="button"
+            disabled={loading}
+            onClick={onConfirm}
+            className={`flex h-10 items-center gap-2 rounded-lg px-4 text-sm font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${
+              danger
+                ? "bg-rose-600 hover:bg-rose-500"
+                : "bg-indigo-600 hover:bg-indigo-500"
+            }`}
+          >
+            {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+            {confirmLabel}
           </button>
         </div>
       </div>

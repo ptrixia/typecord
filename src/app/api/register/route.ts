@@ -1,7 +1,12 @@
-import { NextResponse } from "next/server";
 import bcrypt from "bcrypt";
+import { NextResponse } from "next/server";
 import { z } from "zod";
+
 import { db } from "@/lib/db";
+import { enforceRateLimit, isSameOriginRequest, sameOriginError } from "@/lib/request-security";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 const registerSchema = z.object({
   username: z
@@ -9,76 +14,59 @@ const registerSchema = z.object({
     .trim()
     .min(2, "O nome de usuário precisa ter pelo menos 2 caracteres.")
     .max(32, "O nome de usuário pode ter no máximo 32 caracteres.")
-    .regex(
-      /^[a-zA-Z0-9_.-]+$/,
-      "O nome de usuário contém caracteres inválidos."
-    ),
-
-  email: z
-    .string()
-    .trim()
-    .email("Digite um e-mail válido.")
-    .max(255),
-
+    .regex(/^[a-zA-Z0-9_.-]+$/, "O nome de usuário contém caracteres inválidos."),
+  email: z.string().trim().email("Digite um e-mail válido.").max(255),
   password: z
     .string()
-    .min(6, "A senha precisa ter pelo menos 6 caracteres.")
-    .max(128),
+    .min(10, "A senha precisa ter pelo menos 10 caracteres.")
+    .max(128, "A senha é muito longa."),
 });
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    console.log("[REGISTER] Body recebido:", { ...body, password: "[REDACTED]" });
+    if (!isSameOriginRequest(request)) {
+      return sameOriginError();
+    }
 
-    const result = registerSchema.safeParse(body);
+    const limited = await enforceRateLimit(request, "register", 5, 15 * 60);
+    if (limited) {
+      return limited;
+    }
 
-    if (!result.success) {
-      console.log("[REGISTER] Erro de validação:", result.error.format());
+    const parsed = registerSchema.safeParse(await request.json().catch(() => null));
+
+    if (!parsed.success) {
       return NextResponse.json(
         {
-          message: result.error.issues[0]?.message ?? "Dados inválidos.",
+          success: false,
+          message: parsed.error.issues[0]?.message ?? "Dados inválidos.",
         },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    const { username, email, password } = result.data;
-    const normalizedEmail = email.toLowerCase();
-
-    console.log("[REGISTER] Verificando usuário existente para:", normalizedEmail);
+    const username = parsed.data.username;
+    const normalizedEmail = parsed.data.email.toLowerCase();
 
     const existingUser = await db.user.findFirst({
       where: {
-        OR: [
-          { email: normalizedEmail },
-          { username },
-        ],
+        OR: [{ email: normalizedEmail }, { username }],
       },
-      select: {
-        email: true,
-        username: true,
-      },
+      select: { id: true },
     });
 
     if (existingUser) {
-      console.log("[REGISTER] Conflito encontrado:", existingUser);
-      if (existingUser.email === normalizedEmail) {
-        return NextResponse.json(
-          { message: "Este e-mail já está sendo usado." },
-          { status: 409 }
-        );
-      }
       return NextResponse.json(
-        { message: "Este nome de usuário já está sendo usado." },
-        { status: 409 }
+        {
+          success: false,
+          message: "Não foi possível criar a conta com os dados informados.",
+        },
+        { status: 409 },
       );
     }
 
-    console.log("[REGISTER] Gerando hash da senha...");
-    const passwordHash = await bcrypt.hash(password, 12);
+    const passwordHash = await bcrypt.hash(parsed.data.password, 12);
 
-    console.log("[REGISTER] Criando usuário no banco de dados...");
     const user = await db.user.create({
       data: {
         username,
@@ -89,34 +77,31 @@ export async function POST(request: Request) {
       select: {
         id: true,
         username: true,
-        email: true,
         globalName: true,
         createdAt: true,
       },
     });
 
-    console.log("[REGISTER] Usuário criado com sucesso:", user.id);
-
     return NextResponse.json(
       {
+        success: true,
         message: "Conta criada com sucesso.",
         user,
       },
-      { status: 201 }
+      {
+        status: 201,
+        headers: { "Cache-Control": "no-store" },
+      },
     );
-  } catch (error: any) {
-    console.error("[REGISTER_FATAL_ERROR] Detalhes completos:", {
-      message: error?.message,
-      code: error?.code,
-      meta: error?.meta,
-      stack: error?.stack,
-    });
+  } catch (error) {
+    console.error("[REGISTER_ERROR]", error);
 
     return NextResponse.json(
       {
-        message: error?.message || "Não foi possível criar sua conta.",
+        success: false,
+        message: "Não foi possível criar sua conta.",
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

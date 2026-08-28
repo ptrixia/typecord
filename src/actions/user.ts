@@ -3,16 +3,20 @@
 import { db } from "@/lib/db";
 import { redis } from "@/lib/redis";
 import { getCurrentUser } from "@/lib/current-user";
+import { emitToGuilds, emitToUser } from "@/lib/realtime/emitter";
 import { revalidatePath } from "next/cache";
 
-interface UpdateProfileParams {
-  globalName?: string;
-  avatarUrl?: string;
-  bannerUrl?: string;
-  bio?: string;
-}
-
 export type ProfileStatus = "ONLINE" | "IDLE" | "DND" | "OFFLINE";
+export type RichPresenceInput = {
+  type?: "PLAYING" | "LISTENING" | "WATCHING" | "STREAMING" | "COMPETING" | "CUSTOM";
+  name: string;
+  details?: string | null;
+  state?: string | null;
+  url?: string | null;
+  startedAt?: string | null;
+  endsAt?: string | null;
+  expiresAt?: string | null;
+};
 
 export type UpdateUserProfileInput = {
   username?: string;
@@ -149,5 +153,105 @@ export async function updateUserProfile(input: UpdateUserProfileInput) {
   revalidatePath("/");
   revalidatePath("/channels/@me");
 
+  const guildIds = (
+    await db.member.findMany({
+      where: { userId: currentUser.id },
+      select: { guildId: true },
+    })
+  ).map((membership) => membership.guildId);
+
+  await Promise.allSettled([
+    redis.del(`user:${currentUser.id}:guilds`),
+    emitToUser(currentUser.id, "USER_UPDATE", { user: updatedUser }),
+    emitToGuilds(guildIds, "USER_UPDATE", { user: updatedUser }),
+    input.status !== undefined
+      ? emitToGuilds(guildIds, "PRESENCE_UPDATE", {
+          userId: currentUser.id,
+          status: updatedUser.status,
+          online: updatedUser.status !== "OFFLINE",
+          updatedAt: new Date().toISOString(),
+        })
+      : Promise.resolve(null),
+  ]);
+
+  return updatedUser;
+}
+
+export async function updateRichPresence(input: RichPresenceInput | null) {
+  const currentUser = await getCurrentUser();
+
+  if (!currentUser) {
+    throw new Error("Não autorizado.");
+  }
+
+  const guildIds = (
+    await db.member.findMany({
+      where: { userId: currentUser.id },
+      select: { guildId: true },
+    })
+  ).map((membership) => membership.guildId);
+
+  if (!input) {
+    await db.richPresence.deleteMany({ where: { userId: currentUser.id } });
+  } else {
+    const name = input.name.trim().replace(/\s+/g, " ").slice(0, 128);
+    if (!name) throw new Error("Informe o nome da atividade.");
+
+    const dates = {
+      startedAt: input.startedAt ? new Date(input.startedAt) : null,
+      endsAt: input.endsAt ? new Date(input.endsAt) : null,
+      expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
+    };
+
+    for (const value of Object.values(dates)) {
+      if (value && Number.isNaN(value.getTime())) {
+        throw new Error("Data de presença inválida.");
+      }
+    }
+
+    await db.richPresence.upsert({
+      where: { userId: currentUser.id },
+      create: {
+        userId: currentUser.id,
+        type: input.type ?? "CUSTOM",
+        name,
+        details: input.details?.trim().slice(0, 128) || null,
+        state: input.state?.trim().slice(0, 128) || null,
+        url: input.url?.trim().slice(0, 2048) || null,
+        ...dates,
+      },
+      update: {
+        type: input.type ?? "CUSTOM",
+        name,
+        details: input.details?.trim().slice(0, 128) || null,
+        state: input.state?.trim().slice(0, 128) || null,
+        url: input.url?.trim().slice(0, 2048) || null,
+        ...dates,
+      },
+    });
+  }
+
+  const updatedUser = await db.user.findUnique({
+    where: { id: currentUser.id },
+    select: {
+      id: true,
+      username: true,
+      globalName: true,
+      avatarUrl: true,
+      bannerUrl: true,
+      bio: true,
+      status: true,
+      customStatus: true,
+      richPresence: true,
+    },
+  });
+
+  await Promise.allSettled([
+    emitToUser(currentUser.id, "USER_UPDATE", { user: updatedUser }),
+    emitToGuilds(guildIds, "USER_UPDATE", { user: updatedUser }),
+  ]);
+
+  revalidatePath("/");
+  revalidatePath("/channels/@me");
   return updatedUser;
 }

@@ -3,13 +3,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bell,
+  FilePlus2,
   Gift,
   Hash,
   Loader2,
+  Mic,
   Pin,
   Plus,
   Reply,
   Smile,
+  Sticker,
   Users,
   X,
 } from "lucide-react";
@@ -19,10 +22,12 @@ import type { MessageEmbedData } from "../Message/MessageEmbed";
 import MessageItem, { MessageData } from "../Message/MessageItem";
 import Avatar from "../Image/Avatar";
 import SearchCommand from "../SearchCommand";
+import type { CommandItem } from "../SearchCommand";
 import GifPicker from "./GifPicker";
 
 import { sendMessageAction } from "@/actions/messages";
-import { pusherClient } from "@/lib/pusher";
+import { useGatewayStatus } from "@/components/app/GatewayStatusProvider";
+import { useToast } from "@/components/app/ToastProvider";
 import {
   onGatewayEvent,
   sendTyping,
@@ -37,9 +42,11 @@ interface TextChatAreaProps {
   currentUser?: any;
   users?: any[];
   channels?: any[];
+  stickers?: any[];
   mode: TextChatMode;
   onOpenDetails?: () => void;
   onDirectConversationChanged?: () => Promise<void> | void;
+  commandItems?: CommandItem[];
 }
 
 interface MentionSuggestion {
@@ -212,6 +219,10 @@ function normalizeMessage(message: any): MessageData {
     reply: normalizedReply,
     attachments: normalizedAttachments,
     embeds: normalizedEmbeds,
+    reactions: Array.isArray(parsed.reactions) ? parsed.reactions : [],
+    poll: parsed.poll ?? null,
+    voiceMessage: parsed.voiceMessage ?? null,
+    isPinned: Boolean(parsed.isPinned),
     isPending: Boolean(parsed.isPending),
     isBot,
     isBotVerified,
@@ -220,44 +231,40 @@ function normalizeMessage(message: any): MessageData {
   } as MessageData;
 }
 
-function mergeMessages(current: MessageData[], incoming: MessageData[]) {
-  const map = new Map<string, MessageData>();
-
-  for (const message of current) {
-    map.set(message.id, message);
-  }
-
-  for (const message of incoming) {
-    map.set(message.id, message);
-  }
-
-  return Array.from(map.values()).sort(
-    (a, b) =>
-      new Date(a.createdAt ?? 0).getTime() -
-      new Date(b.createdAt ?? 0).getTime(),
-  );
-}
-
 export default function TextChatArea({
   channel,
   currentUser,
   users,
   channels,
+  stickers = [],
   mode,
   onOpenDetails,
   onDirectConversationChanged,
+  commandItems = [],
 }: TextChatAreaProps) {
   const isDirect = mode === "direct";
+  const gatewayStatus = useGatewayStatus();
+  const { pushToast } = useToast();
 
   const [isMounted, setIsMounted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const [hasMore, setHasMore] = useState(true);
   const [messages, setMessages] = useState<MessageData[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isGifOpen, setIsGifOpen] = useState(false);
   const [isEmojiOpen, setIsEmojiOpen] = useState(false);
+  const [isStickerOpen, setIsStickerOpen] = useState(false);
+  const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false);
+  const [isPollOpen, setIsPollOpen] = useState(false);
+  const [showPinnedOnly, setShowPinnedOnly] = useState(false);
+  const [pollQuestion, setPollQuestion] = useState("");
+  const [pollOptions, setPollOptions] = useState(["", ""]);
+  const [pollAllowMultiple, setPollAllowMultiple] = useState(false);
   const [replyingTo, setReplyingTo] = useState<MessageData | null>(null);
+  const [editingMessage, setEditingMessage] = useState<MessageData | null>(null);
+  const [isEditingMessage, setIsEditingMessage] = useState(false);
   const [activeMenuMessageId, setActiveMenuMessageId] = useState<string | null>(null);
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const [mentionSuggestions, setMentionSuggestions] = useState<MentionSuggestion[]>([]);
@@ -270,6 +277,7 @@ export default function TextChatArea({
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const voiceInputRef = useRef<HTMLInputElement>(null);
   const prevScrollHeightRef = useRef(0);
 
   const currentUserName =
@@ -340,6 +348,7 @@ export default function TextChatArea({
       }
 
       try {
+        setLoadError("");
         const url = isDirect
           ? cursor
             ? `/api/direct-messages/conversations/${channel.id}/messages?limit=50&before=${encodeURIComponent(cursor)}`
@@ -389,12 +398,25 @@ export default function TextChatArea({
         });
       } catch (error) {
         console.error("[CHAT_MESSAGES_GET]", error);
+        setLoadError(
+          error instanceof Error
+            ? error.message
+            : "Não foi possível carregar as mensagens.",
+        );
+        pushToast({
+          type: "error",
+          title: "Falha ao carregar mensagens",
+          description:
+            error instanceof Error
+              ? error.message
+              : "Tente novamente em alguns instantes.",
+        });
       } finally {
         setIsLoading(false);
         setIsLoadingMore(false);
       }
     },
-    [channel?.id, isDirect],
+    [channel, isDirect, pushToast],
   );
 
   useEffect(() => {
@@ -408,10 +430,13 @@ export default function TextChatArea({
     setHasMore(true);
     setTypingUsers([]);
     setReplyingTo(null);
+    setEditingMessage(null);
     setMentionSuggestions([]);
     setActiveMenuMessageId(null);
     setIsGifOpen(false);
     setIsEmojiOpen(false);
+    setIsStickerOpen(false);
+    setIsPollOpen(false);
 
     void fetchMessages();
 
@@ -445,6 +470,17 @@ export default function TextChatArea({
       }
 
       const updatedMessage = normalizeMessage(rawMessage);
+      const hasIdentityPayload =
+        Boolean(rawMessage.author) ||
+        Boolean(rawMessage.authorId) ||
+        Boolean(rawMessage.userId) ||
+        Boolean(rawMessage.member);
+      const hasContentPayload =
+        typeof rawMessage.content === "string" ||
+        Object.prototype.hasOwnProperty.call(rawMessage, "attachments") ||
+        Object.prototype.hasOwnProperty.call(rawMessage, "embeds") ||
+        Object.prototype.hasOwnProperty.call(rawMessage, "poll") ||
+        Object.prototype.hasOwnProperty.call(rawMessage, "voiceMessage");
 
       setMessages((current) =>
         current.map((message) =>
@@ -452,6 +488,16 @@ export default function TextChatArea({
             ? {
                 ...message,
                 ...updatedMessage,
+                content: hasContentPayload ? updatedMessage.content : message.content,
+                attachments: hasContentPayload ? updatedMessage.attachments : message.attachments,
+                embeds: hasContentPayload ? updatedMessage.embeds : message.embeds,
+                poll: hasContentPayload ? updatedMessage.poll : message.poll,
+                voiceMessage: hasContentPayload ? updatedMessage.voiceMessage : message.voiceMessage,
+                author: hasIdentityPayload ? updatedMessage.author : message.author,
+                authorId: hasIdentityPayload ? updatedMessage.authorId : message.authorId,
+                avatarUrl: hasIdentityPayload ? updatedMessage.avatarUrl : message.avatarUrl,
+                authorColor: hasIdentityPayload ? updatedMessage.authorColor : message.authorColor,
+                avatarColor: hasIdentityPayload ? updatedMessage.avatarColor : message.avatarColor,
               }
             : message,
         ),
@@ -471,15 +517,7 @@ export default function TextChatArea({
       }
 
       setMessages((current) =>
-        current.map((message) =>
-          message.id === messageId
-            ? ({
-                ...message,
-                content: "",
-                deleted: true,
-              } as MessageData)
-            : message,
-        ),
+        current.filter((message) => message.id !== messageId),
       );
     };
 
@@ -518,36 +556,48 @@ export default function TextChatArea({
     };
 
     if (isDirect) {
-      const pusherChannelName = `direct-conversation-${channel.id}`;
-      const pusherChannel = pusherClient.subscribe(pusherChannelName);
+      const matchesConversation = (data: any) =>
+        String(data?.conversationId ?? data?.message?.conversationId ?? "") ===
+        String(channel.id);
 
-      const handleMessagesChanged = () => {
-        fetch(
-          `/api/direct-messages/conversations/${channel.id}/messages?limit=50`,
-          { cache: "no-store" },
-        )
-          .then((response) => response.json())
-          .then((data) => {
-            if (!data?.success || !Array.isArray(data.messages)) {
-              return;
-            }
+      const removeCreate = onGatewayEvent<any>("MESSAGE_CREATE", ({ data }) => {
+        if (!matchesConversation(data)) {
+          return;
+        }
 
-            const latest = data.messages.map(normalizeMessage);
-            setMessages((current) => mergeMessages(current, latest));
-          })
-          .catch(() => {});
-      };
+        appendMessage(data?.message ?? data);
+      });
 
-      pusherChannel.bind("new-message", appendMessage);
-      pusherChannel.bind("typing", showTyping);
-      pusherChannel.bind("messages-changed", handleMessagesChanged);
+      const removeUpdate = onGatewayEvent<any>("MESSAGE_UPDATE", ({ data }) => {
+        if (!matchesConversation(data)) {
+          return;
+        }
+
+        applyMessageUpdate(data);
+      });
+
+      const removeDelete = onGatewayEvent<any>("MESSAGE_DELETE", ({ data }) => {
+        if (!matchesConversation(data)) {
+          return;
+        }
+
+        applyMessageDelete(data);
+      });
+
+      const removeTyping = onGatewayEvent<any>("TYPING_START", ({ data }) => {
+        if (!matchesConversation(data)) {
+          return;
+        }
+
+        showTyping(data);
+      });
 
       return () => {
         disposed = true;
-        pusherChannel.unbind("new-message", appendMessage);
-        pusherChannel.unbind("typing", showTyping);
-        pusherChannel.unbind("messages-changed", handleMessagesChanged);
-        pusherClient.unsubscribe(pusherChannelName);
+        removeCreate();
+        removeUpdate();
+        removeDelete();
+        removeTyping();
       };
     }
 
@@ -768,12 +818,13 @@ export default function TextChatArea({
   const sendMessage = async (
     text = inputValue.trim(),
     attachments: any[] = [],
+    extraPayload: Record<string, unknown> = {},
   ) => {
     if (!channel?.id) {
       return;
     }
 
-    if (!text && attachments.length === 0) {
+    if (!text && attachments.length === 0 && Object.keys(extraPayload).length === 0) {
       return;
     }
 
@@ -806,11 +857,12 @@ export default function TextChatArea({
             headers: {
               "Content-Type": "application/json",
             },
-            body: JSON.stringify({
-              content: text,
-              replyToId: currentReply?.id ?? null,
-              attachments: directAttachments,
-            }),
+        body: JSON.stringify({
+          content: text,
+          replyToId: currentReply?.id ?? null,
+          attachments: directAttachments,
+          ...extraPayload,
+        }),
           },
         );
 
@@ -851,6 +903,7 @@ export default function TextChatArea({
           : null,
         attachments,
         embeds,
+        ...extraPayload,
       };
 
       const sent = await sendMessageAction(
@@ -872,13 +925,227 @@ export default function TextChatArea({
     } catch (error) {
       console.error("[CHAT_MESSAGE_SEND]", error);
 
-      alert(
-        error instanceof Error
-          ? error.message
-          : "Não foi possível enviar a mensagem.",
-      );
+      pushToast({
+        type: "error",
+        title: "Mensagem não enviada",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Não foi possível enviar a mensagem.",
+      });
     }
   };
+
+  const sendPoll = async () => {
+    const options = pollOptions.map((option) => option.trim()).filter(Boolean);
+    if (!pollQuestion.trim() || options.length < 2) {
+      pushToast({
+        type: "error",
+        title: "Enquete incompleta",
+        description: "A enquete precisa de uma pergunta e pelo menos duas opções.",
+      });
+      return;
+    }
+
+    await sendMessage("", [], {
+      poll: {
+        question: pollQuestion.trim(),
+        options,
+        allowMultiple: pollAllowMultiple,
+      },
+    });
+
+    setPollQuestion("");
+    setPollOptions(["", ""]);
+    setPollAllowMultiple(false);
+    setIsPollOpen(false);
+  };
+
+  const reactToMessage = async (message: MessageData, emoji: string) => {
+    const url = isDirect
+      ? `/api/direct-messages/messages/${encodeURIComponent(message.id)}/reactions`
+      : `/api/messages/${encodeURIComponent(message.id)}/reactions`;
+
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emoji }),
+      });
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.message || "Não foi possível reagir.");
+      }
+
+      if (Array.isArray(data.reactions)) {
+        setMessages((current) =>
+          current.map((item) =>
+            item.id === message.id ? { ...item, reactions: data.reactions } : item,
+          ),
+        );
+      } else if (data.message) {
+        const updated = normalizeMessage(data.message);
+        setMessages((current) =>
+          current.map((item) => (item.id === message.id ? { ...item, ...updated } : item)),
+        );
+      }
+    } catch (error) {
+      pushToast({
+        type: "error",
+        title: "Reação não enviada",
+        description: error instanceof Error ? error.message : "Não foi possível reagir.",
+      });
+    }
+  };
+
+  const votePoll = async (message: MessageData, optionId: string) => {
+    try {
+      const response = await fetch(
+        `/api/poll-options/${encodeURIComponent(optionId)}/votes`,
+        { method: "POST" },
+      );
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok || !data?.success || !data.poll) {
+        throw new Error(data?.message || "Não foi possível votar.");
+      }
+
+      setMessages((current) =>
+        current.map((item) =>
+          item.id === message.id ? { ...item, poll: data.poll } : item,
+        ),
+      );
+    } catch (error) {
+      pushToast({
+        type: "error",
+        title: "Voto não registrado",
+        description: error instanceof Error ? error.message : "Não foi possível votar.",
+      });
+    }
+  };
+
+  const togglePin = async (message: MessageData) => {
+    try {
+      const response = await fetch(
+        `/api/messages/${encodeURIComponent(message.id)}/pin`,
+        { method: message.isPinned ? "DELETE" : "POST" },
+      );
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.message || "Não foi possível atualizar o pin.");
+      }
+
+      if (data.message) {
+        const updated = normalizeMessage(data.message);
+        setMessages((current) =>
+          current.map((item) =>
+            item.id === message.id
+              ? {
+                  ...item,
+                  isPinned: updated.isPinned,
+                }
+              : item,
+          ),
+        );
+      } else {
+        setMessages((current) =>
+          current.map((item) =>
+            item.id === message.id ? { ...item, isPinned: !message.isPinned } : item,
+          ),
+        );
+      }
+      pushToast({
+        type: "success",
+        title: message.isPinned ? "Mensagem desafixada" : "Mensagem fixada",
+      });
+    } catch (error) {
+      pushToast({
+        type: "error",
+        title: "Pin não atualizado",
+        description: error instanceof Error ? error.message : "Não foi possível atualizar o pin.",
+      });
+    }
+  };
+
+  const beginEditMessage = (message: MessageData) => {
+    if (isDirect) return;
+    setEditingMessage(message);
+    setReplyingTo(null);
+    setInputValue(message.content);
+    setMentionSuggestions([]);
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(message.content.length, message.content.length);
+    });
+  };
+
+  const cancelEditMessage = () => {
+    setEditingMessage(null);
+    setInputValue("");
+    setMentionSuggestions([]);
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+    }
+  };
+
+  const submitEditMessage = async () => {
+    if (!editingMessage || isDirect || isEditingMessage) return;
+    const nextContent = inputValue.trim();
+    if (!nextContent) {
+      pushToast({
+        type: "error",
+        title: "Mensagem vazia",
+        description: "Digite algum conteúdo para salvar a edição.",
+      });
+      return;
+    }
+
+    try {
+      setIsEditingMessage(true);
+      const response = await fetch(`/api/messages/${encodeURIComponent(editingMessage.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: nextContent }),
+      });
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok || !data?.success || !data.message) {
+        throw new Error(data?.message || "Não foi possível editar a mensagem.");
+      }
+
+      const updated = normalizeMessage(data.message);
+      setMessages((current) =>
+        current.map((item) =>
+          item.id === editingMessage.id
+            ? {
+                ...item,
+                ...updated,
+                author: item.author,
+                authorId: item.authorId,
+                avatarUrl: item.avatarUrl,
+              }
+            : item,
+        ),
+      );
+      setEditingMessage(null);
+      setInputValue("");
+      pushToast({ type: "success", title: "Mensagem editada" });
+    } catch (error) {
+      pushToast({
+        type: "error",
+        title: "Mensagem não editada",
+        description: error instanceof Error ? error.message : "Não foi possível editar a mensagem.",
+      });
+    } finally {
+      setIsEditingMessage(false);
+    }
+  };
+
+  const visibleMessages = showPinnedOnly
+    ? messages.filter((message) => message.isPinned && !message.deleted)
+    : messages;
 
   const handleInput = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = event.target.value;
@@ -958,6 +1225,11 @@ export default function TextChatArea({
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
 
+      if (editingMessage) {
+        void submitEditMessage();
+        return;
+      }
+
       if (inputValue.trim() !== "" || replyingTo) {
         void sendMessage();
       }
@@ -1032,7 +1304,11 @@ export default function TextChatArea({
       await sendMessage(inputValue.trim(), [attachment]);
     } catch (error) {
       console.error("[CHAT_UPLOAD]", error);
-      alert(`Não foi possível enviar ${file.name}`);
+      pushToast({
+        type: "error",
+        title: "Upload não iniciado",
+        description: `Não foi possível enviar ${file.name}.`,
+      });
     } finally {
       setIsUploading(false);
 
@@ -1050,7 +1326,11 @@ export default function TextChatArea({
 
     for (const file of list) {
       if (file.size > maxSize) {
-        alert(`${file.name} é maior que 25 MB.`);
+        pushToast({
+          type: "error",
+          title: "Arquivo muito grande",
+          description: `${file.name} é maior que 25 MB.`,
+        });
         continue;
       }
 
@@ -1066,6 +1346,55 @@ export default function TextChatArea({
     event.target.value = "";
   };
 
+  const handleVoiceInput = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    if (!file.type.startsWith("audio/")) {
+      pushToast({
+        type: "error",
+        title: "Áudio inválido",
+        description: "Selecione um arquivo de áudio.",
+      });
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      pushToast({
+        type: "error",
+        title: "Áudio muito grande",
+        description: `${file.name} é maior que 10 MB.`,
+      });
+      return;
+    }
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await fetch("/api/upload", { method: "POST", body: formData });
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok || !data?.success || !data.key) {
+        throw new Error(data?.message || "Falha no upload do áudio.");
+      }
+
+      await sendMessage("", [], {
+        voiceMessage: {
+          key: data.key,
+          url: data.key,
+          durationSeconds: 1,
+        },
+      });
+    } catch (error) {
+      pushToast({
+        type: "error",
+        title: "Áudio não enviado",
+        description: error instanceof Error ? error.message : "Não foi possível enviar o áudio.",
+      });
+    }
+  };
+
   const handleSendMedia = (url: string) => {
     void sendMessage(`![GIF](${url})`);
     setIsGifOpen(false);
@@ -1077,13 +1406,54 @@ export default function TextChatArea({
   };
 
   const toggleGif = () => {
-    setIsGifOpen((current) => !current);
+    const shouldOpen = !isGifOpen || isEmojiOpen || isStickerOpen;
+    setIsGifOpen(shouldOpen);
     setIsEmojiOpen(false);
+    setIsStickerOpen(false);
+    setIsPollOpen(false);
+    setIsAttachmentMenuOpen(false);
   };
 
   const toggleEmoji = () => {
-    setIsEmojiOpen((current) => !current);
+    const shouldOpen = !isEmojiOpen || isGifOpen || isStickerOpen;
+    setIsEmojiOpen(shouldOpen);
     setIsGifOpen(false);
+    setIsStickerOpen(false);
+    setIsPollOpen(false);
+    setIsAttachmentMenuOpen(false);
+  };
+
+  const toggleSticker = () => {
+    const shouldOpen = !isStickerOpen || isGifOpen || isEmojiOpen;
+    setIsStickerOpen(shouldOpen);
+    setIsGifOpen(false);
+    setIsEmojiOpen(false);
+    setIsPollOpen(false);
+    setIsAttachmentMenuOpen(false);
+  };
+
+  const createThread = async () => {
+    if (isDirect || !channel?.id) return;
+    const name = `Thread de ${currentUserName}`;
+
+    try {
+      const response = await fetch(`/api/channels/${encodeURIComponent(channel.id)}/threads`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, private: false }),
+      });
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.message || "Não foi possível criar a thread.");
+      }
+    } catch (error) {
+      pushToast({
+        type: "error",
+        title: "Thread não criada",
+        description: error instanceof Error ? error.message : "Não foi possível criar a thread.",
+      });
+    }
   };
 
   if (!isMounted) {
@@ -1130,7 +1500,22 @@ export default function TextChatArea({
           {!isDirect && (
             <>
               <Bell className="h-5 w-5 cursor-pointer hover:text-zinc-800 dark:hover:text-zinc-200" />
-              <Pin className="h-5 w-5 cursor-pointer hover:text-zinc-800 dark:hover:text-zinc-200" />
+              <button
+                type="button"
+                onClick={() => setShowPinnedOnly((current) => !current)}
+                className={showPinnedOnly ? "rounded-sm text-indigo-500" : "rounded-sm hover:text-zinc-800 dark:hover:text-zinc-200"}
+                title={showPinnedOnly ? "Mostrar todas as mensagens" : "Mostrar mensagens fixadas"}
+              >
+                <Pin className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => void createThread()}
+                className="rounded-sm hover:text-zinc-800 dark:hover:text-zinc-200"
+                title="Criar thread"
+              >
+                <Hash className="h-5 w-5" />
+              </button>
             </>
           )}
 
@@ -1149,14 +1534,24 @@ export default function TextChatArea({
             <Users className="h-5 w-5" />
           </button>
 
-          <SearchCommand />
+          <SearchCommand items={commandItems} />
         </div>
       </div>
+
+      {gatewayStatus.state !== "connected" && (
+        <div className="shrink-0 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2 text-xs font-semibold text-amber-700 dark:text-amber-200">
+          {gatewayStatus.state === "connecting"
+            ? "Conectando ao realtime..."
+            : gatewayStatus.state === "reconnecting"
+              ? "Reconectando ao realtime..."
+              : gatewayStatus.message || "Realtime indisponível no momento."}
+        </div>
+      )}
 
       <div
         ref={chatContainerRef}
         onScroll={handleScroll}
-        className="custom-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-4"
+        className="custom-scrollbar typecord-chat-list min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-4"
       >
         {isLoading ? (
           <div className="flex h-full items-center justify-center">
@@ -1170,12 +1565,32 @@ export default function TextChatArea({
               </div>
             )}
 
-            {messages.map((message) => (
+            {showPinnedOnly && visibleMessages.length === 0 && (
+              <div className="rounded-lg border border-dashed border-zinc-300 p-4 text-center text-sm text-zinc-500 dark:border-zinc-700">
+                Nenhuma mensagem fixada neste canal.
+              </div>
+            )}
+
+            {loadError && visibleMessages.length === 0 && (
+              <div className="rounded-lg border border-red-400/20 bg-red-500/10 p-4 text-center text-sm text-red-600 dark:text-red-300">
+                {loadError}
+                <button
+                  type="button"
+                  onClick={() => void fetchMessages()}
+                  className="ml-3 font-bold underline underline-offset-2"
+                >
+                  Tentar novamente
+                </button>
+              </div>
+            )}
+
+            {visibleMessages.map((message) => (
               <MessageItem
                 key={message.id}
                 message={message}
                 users={usersList}
                 channels={channelsList}
+                currentUserId={currentUserId}
                 isMenuOpen={activeMenuMessageId === message.id}
                 onReply={(messageToReply) => {
                   setReplyingTo(messageToReply);
@@ -1186,7 +1601,19 @@ export default function TextChatArea({
                   void navigator.clipboard.writeText(text);
                   setActiveMenuMessageId(null);
                 }}
-                onReact={() => {}}
+                onReact={(messageToReact) => void reactToMessage(messageToReact, "👍")}
+                onQuickReact={(messageToReact, emoji) => void reactToMessage(messageToReact, emoji)}
+                onPollVote={(messageWithPoll, optionId) => void votePoll(messageWithPoll, optionId)}
+                onTogglePin={!isDirect ? (messageToPin) => void togglePin(messageToPin) : undefined}
+                onEdit={!isDirect ? (messageToEdit) => beginEditMessage(messageToEdit) : undefined}
+                getDeleteUrl={(messageToDelete) =>
+                  isDirect
+                    ? `/api/direct-messages/messages/${encodeURIComponent(messageToDelete.id)}`
+                    : `/api/messages/${encodeURIComponent(messageToDelete.id)}`
+                }
+                onDeleted={(messageId) => {
+                  setMessages((current) => current.filter((item) => item.id !== messageId));
+                }}
               />
             ))}
 
@@ -1254,23 +1681,199 @@ export default function TextChatArea({
           </div>
         )}
 
-        {isGifOpen && (
-          <div className="absolute bottom-[80px] right-24 z-50">
-            <GifPicker onSendGif={handleSendMedia} />
+        {isAttachmentMenuOpen && (
+          <div className="absolute bottom-[80px] left-4 z-50 w-64 overflow-hidden rounded-xl border border-zinc-200 bg-white p-1 shadow-2xl dark:border-zinc-700 dark:bg-[#2b2d31]">
+            <button
+              type="button"
+              onClick={() => {
+                setIsAttachmentMenuOpen(false);
+                fileInputRef.current?.click();
+              }}
+              className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-700"
+            >
+              <FilePlus2 className="h-4 w-4 text-zinc-500" />
+              Enviar arquivo
+            </button>
+            {!isDirect && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAttachmentMenuOpen(false);
+                    voiceInputRef.current?.click();
+                  }}
+                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                >
+                  <Mic className="h-4 w-4 text-zinc-500" />
+                  Mensagem de voz
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAttachmentMenuOpen(false);
+                    setIsPollOpen((current) => !current);
+                    setIsGifOpen(false);
+                    setIsEmojiOpen(false);
+                    setIsStickerOpen(false);
+                  }}
+                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                >
+                  <Pin className="h-4 w-4 text-zinc-500" />
+                  Criar enquete
+                </button>
+              </>
+            )}
           </div>
         )}
 
-        {isEmojiOpen && (
-          <div className="absolute bottom-[80px] right-4 z-50 shadow-xl">
-            <EmojiPicker
-              onEmojiClick={handleSelectEmoji}
-              theme={Theme.AUTO}
-              lazyLoadEmojis
+        {(isGifOpen || isStickerOpen || isEmojiOpen) && (
+          <div className="absolute bottom-[80px] right-4 z-50 w-[380px] max-w-[calc(100%-2rem)] overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-[#2b2d31]">
+            <div className="flex border-b border-zinc-200 p-1 dark:border-zinc-700">
+              <button
+                type="button"
+                onClick={toggleGif}
+                className={`flex-1 rounded-lg px-3 py-2 text-xs font-bold ${isGifOpen ? "bg-zinc-100 text-zinc-900 dark:bg-zinc-700 dark:text-white" : "text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-700"}`}
+              >
+                GIFs
+              </button>
+              {!isDirect && (
+                <button
+                  type="button"
+                  onClick={toggleSticker}
+                  className={`flex-1 rounded-lg px-3 py-2 text-xs font-bold ${isStickerOpen ? "bg-zinc-100 text-zinc-900 dark:bg-zinc-700 dark:text-white" : "text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-700"}`}
+                >
+                  Stickers
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={toggleEmoji}
+                className={`flex-1 rounded-lg px-3 py-2 text-xs font-bold ${isEmojiOpen ? "bg-zinc-100 text-zinc-900 dark:bg-zinc-700 dark:text-white" : "text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-700"}`}
+              >
+                Emojis
+              </button>
+            </div>
+
+            {isGifOpen && <GifPicker onSendGif={handleSendMedia} />}
+
+            {isStickerOpen && !isDirect && (
+              <div className="p-3">
+                {stickers.length > 0 ? (
+                  <div className="grid max-h-72 grid-cols-3 gap-2 overflow-y-auto">
+                    {stickers.map((sticker: any) => {
+                      const url = String(sticker.url ?? "");
+                      const src = url.startsWith("/api/files") || url.startsWith("http")
+                        ? url
+                        : `/api/files?key=${encodeURIComponent(url)}`;
+
+                      return (
+                        <button
+                          key={sticker.id}
+                          type="button"
+                          onClick={() => {
+                            void sendMessage(`![${sticker.name}](${src})`);
+                            setIsStickerOpen(false);
+                          }}
+                          className="rounded-lg border border-zinc-200 bg-zinc-50 p-2 hover:border-indigo-300 dark:border-zinc-700 dark:bg-[#111214]"
+                          title={sticker.name}
+                        >
+                          <img src={src} alt="" className="aspect-square w-full object-contain" />
+                          <span className="mt-1 block truncate text-[10px] font-semibold text-zinc-500">
+                            {sticker.name}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-zinc-300 p-5 text-center text-xs text-zinc-500 dark:border-zinc-700">
+                    Nenhum sticker criado ainda.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {isEmojiOpen && (
+              <div className="p-2">
+                <EmojiPicker
+                  onEmojiClick={handleSelectEmoji}
+                  theme={Theme.AUTO}
+                  lazyLoadEmojis
+                />
+              </div>
+            )}
+          </div>
+        )}
+
+        {isPollOpen && !isDirect && (
+          <div className="absolute bottom-[80px] right-4 z-50 w-[360px] max-w-[calc(100%-2rem)] rounded-xl border border-zinc-200 bg-white p-4 shadow-2xl dark:border-zinc-700 dark:bg-[#2b2d31]">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-bold text-zinc-900 dark:text-white">
+                Nova enquete
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsPollOpen(false)}
+                className="rounded p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-700"
+                aria-label="Fechar enquete"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <input
+              value={pollQuestion}
+              onChange={(event) => setPollQuestion(event.target.value)}
+              maxLength={300}
+              placeholder="Pergunta"
+              className="mb-2 h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-[#111214] dark:text-white"
             />
+            <div className="space-y-2">
+              {pollOptions.map((option, index) => (
+                <input
+                  key={index}
+                  value={option}
+                  onChange={(event) =>
+                    setPollOptions((current) =>
+                      current.map((item, itemIndex) =>
+                        itemIndex === index ? event.target.value : item,
+                      ),
+                    )
+                  }
+                  maxLength={120}
+                  placeholder={`Opção ${index + 1}`}
+                  className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-[#111214] dark:text-white"
+                />
+              ))}
+            </div>
+            <div className="mt-3 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => setPollOptions((current) => [...current, ""])}
+                disabled={pollOptions.length >= 10}
+                className="text-xs font-semibold text-indigo-500 disabled:opacity-50"
+              >
+                Adicionar opção
+              </button>
+              <label className="flex items-center gap-2 text-xs text-zinc-500">
+                <input
+                  type="checkbox"
+                  checked={pollAllowMultiple}
+                  onChange={(event) => setPollAllowMultiple(event.target.checked)}
+                />
+                Múltipla escolha
+              </label>
+            </div>
+            <button
+              type="button"
+              onClick={() => void sendPoll()}
+              className="mt-4 flex h-10 w-full items-center justify-center rounded-lg bg-indigo-500 text-sm font-bold text-white hover:bg-indigo-400"
+            >
+              Enviar enquete
+            </button>
           </div>
         )}
 
-        <div className="flex flex-col rounded-lg bg-stone-300/50 px-3 py-2 dark:bg-[#383a40]">
+        <div className="typecord-composer flex flex-col rounded-lg bg-stone-300/50 px-3 py-2 dark:bg-[#383a40]">
           {replyingTo && (
             <div className="flex items-center gap-2 border-b border-stone-400/20 pb-2 text-xs dark:border-zinc-700/50">
               <Reply className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
@@ -1283,6 +1886,26 @@ export default function TextChatArea({
                 type="button"
                 onClick={() => setReplyingTo(null)}
                 className="ml-auto shrink-0 rounded p-1 text-zinc-500 hover:bg-zinc-300 hover:text-zinc-900 dark:hover:bg-zinc-700 dark:hover:text-white"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+
+          {editingMessage && (
+            <div className="flex items-center gap-2 border-b border-stone-400/20 pb-2 text-xs dark:border-zinc-700/50">
+              <Pin className="h-3.5 w-3.5 shrink-0 text-indigo-500" />
+              <span className="text-zinc-500">Editando mensagem</span>
+              <strong className="min-w-0 truncate text-zinc-700 dark:text-zinc-200">
+                Enter para salvar
+              </strong>
+
+              <button
+                type="button"
+                onClick={cancelEditMessage}
+                disabled={isEditingMessage}
+                className="ml-auto shrink-0 rounded p-1 text-zinc-500 hover:bg-zinc-300 hover:text-zinc-900 disabled:opacity-50 dark:hover:bg-zinc-700 dark:hover:text-white"
+                title="Cancelar edição"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -1310,9 +1933,19 @@ export default function TextChatArea({
             <button
               type="button"
               disabled={isUploading}
-              onClick={() => fileInputRef.current?.click()}
-              className="shrink-0 text-zinc-500 hover:text-zinc-800 disabled:opacity-50 dark:text-zinc-400 dark:hover:text-zinc-200"
-              title="Enviar arquivo"
+              onClick={() => {
+                setIsAttachmentMenuOpen((current) => !current);
+                setIsGifOpen(false);
+                setIsEmojiOpen(false);
+                setIsStickerOpen(false);
+                setIsPollOpen(false);
+              }}
+              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition disabled:opacity-50 ${
+                isAttachmentMenuOpen
+                  ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                  : "text-zinc-500 hover:bg-zinc-300 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-600 dark:hover:text-zinc-200"
+              }`}
+              title="Adicionar"
             >
               <Plus className="h-5 w-5" />
             </button>
@@ -1325,6 +1958,14 @@ export default function TextChatArea({
               onChange={handleFileInput}
             />
 
+            <input
+              ref={voiceInputRef}
+              type="file"
+              accept="audio/*"
+              className="hidden"
+              onChange={handleVoiceInput}
+            />
+
             <textarea
               ref={textareaRef}
               value={inputValue}
@@ -1333,7 +1974,9 @@ export default function TextChatArea({
               maxLength={8000}
               rows={1}
               placeholder={
-                replyingTo
+                editingMessage
+                  ? "Editar mensagem..."
+                  : replyingTo
                   ? `Responder a ${replyingTo.author}...`
                   : isDirect
                     ? `Mensagem para ${channel.name}`
@@ -1342,29 +1985,51 @@ export default function TextChatArea({
               className="custom-scrollbar min-w-0 flex-1 resize-none self-center bg-transparent text-sm leading-5 text-zinc-900 outline-none placeholder:text-zinc-500 dark:text-zinc-100 dark:placeholder:text-zinc-400"
             />
 
-            <div className="flex shrink-0 items-center gap-3 text-zinc-500 dark:text-zinc-400">
-              <Gift className="h-5 w-5 cursor-pointer hover:text-zinc-800 dark:hover:text-zinc-200" />
+            {editingMessage && (
+              <button
+                type="button"
+                disabled={isEditingMessage || !inputValue.trim()}
+                onClick={() => void submitEditMessage()}
+                className="flex h-8 shrink-0 items-center justify-center rounded-lg bg-indigo-600 px-3 text-xs font-bold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isEditingMessage ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  "Salvar"
+                )}
+              </button>
+            )}
 
+            <div className="flex shrink-0 items-center gap-3 text-zinc-500 dark:text-zinc-400">
               <button
                 type="button"
                 onClick={toggleGif}
-                className={`rounded px-1.5 py-0.5 text-xs font-bold ${
-                  isGifOpen
+                className={`flex h-8 items-center gap-1.5 rounded px-2 text-xs font-bold ${
+                  isGifOpen || isStickerOpen || isEmojiOpen
                     ? "bg-zinc-300 text-zinc-900 dark:bg-zinc-600 dark:text-zinc-100"
                     : "hover:bg-zinc-300 hover:text-zinc-800 dark:hover:bg-zinc-600 dark:hover:text-zinc-200"
                 }`}
+                title="GIFs, stickers e emojis"
               >
+                <Gift className="h-4 w-4" />
                 GIF
               </button>
-
-              <Smile
+              <button
+                type="button"
+                onClick={toggleSticker}
+                className="rounded p-1 hover:bg-zinc-300 hover:text-zinc-800 dark:hover:bg-zinc-600 dark:hover:text-zinc-200"
+                title="Stickers"
+              >
+                <Sticker className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
                 onClick={toggleEmoji}
-                className={`h-5 w-5 cursor-pointer ${
-                  isEmojiOpen
-                    ? "text-zinc-900 dark:text-zinc-100"
-                    : "hover:text-zinc-800 dark:hover:text-zinc-200"
-                }`}
-              />
+                className="rounded p-1 hover:bg-zinc-300 hover:text-zinc-800 dark:hover:bg-zinc-600 dark:hover:text-zinc-200"
+                title="Emojis"
+              >
+                <Smile className="h-5 w-5" />
+              </button>
             </div>
           </div>
         </div>

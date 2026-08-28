@@ -13,7 +13,7 @@ interface ChannelsPageProps {
 export default async function ChannelsPage({ params }: ChannelsPageProps) {
   const resolvedParams = await params;
   const id = resolvedParams.id;
-  const isDirectMessages = id === "%40me";
+  const isDirectMessages = id === "@me" || id === "%40me";
 
   const currentUser = await getCurrentUser();
 

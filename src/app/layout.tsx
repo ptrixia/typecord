@@ -1,7 +1,11 @@
 import type { Metadata } from "next";
 import { ThemeProvider } from "@/components/theme-provider";
+import AppProviders from "@/components/app/AppProviders";
 import "@livekit/components-styles";
 import "./globals.css";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 const APP_URL =
   process.env.NEXT_PUBLIC_APP_URL ||
@@ -111,7 +115,7 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          {children}
+          <AppProviders>{children}</AppProviders>
         </ThemeProvider>
       </body>
     </html>

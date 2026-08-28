@@ -18,8 +18,6 @@ interface UserProfileSideBarProps {
   user: UserProfileData | null;
 }
 
-export default function UserProfileSideBar({
-  user,
-}: UserProfileSideBarProps) {
+export default function UserProfileSideBar({ user }: UserProfileSideBarProps) {
   return <UserProfileContent user={user} />;
 }

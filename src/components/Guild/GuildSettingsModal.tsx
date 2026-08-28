@@ -21,6 +21,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircleGauge,
+  Copy,
   Crown,
   FileClock,
   FolderPlus,
@@ -61,8 +62,14 @@ import {
 import { toggleMemberRole } from "@/actions/members";
 import {
   banGuildMember,
+  createAutoModRule,
   createGuildCategory,
   createGuildEmoji,
+  createGuildSticker,
+  createModerationWarning,
+  createScheduledEvent,
+  createServerTemplate,
+  createSoundboardSound,
   deleteGuildCategory,
   deleteGuildEmoji,
   deleteGuildPermanently,
@@ -71,7 +78,11 @@ import {
   leaveGuild,
   renameGuildCategory,
   transferGuildOwnership,
+  timeoutGuildMember,
+  toggleAutoModRule,
+  updateScheduledEventStatus,
   unbanGuildMember,
+  updateGuildOnboarding,
   updateDefaultRolePermissions,
   updateGuildMemberNickname,
   updateGuildProfile,
@@ -95,6 +106,7 @@ type Tab =
   | "emojis"
   | "bans"
   | "audit"
+  | "production"
   | "advanced";
 
 type RoleDraft = {
@@ -335,7 +347,7 @@ export default function GuildSettingsModal({ isOpen, onClose, guild }: Props) {
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [editingCategoryName, setEditingCategoryName] = useState("");
   const [channelName, setChannelName] = useState("");
-  const [channelType, setChannelType] = useState<"GUILD_TEXT" | "GUILD_VOICE">("GUILD_TEXT");
+  const [channelType, setChannelType] = useState<"GUILD_TEXT" | "GUILD_VOICE" | "GUILD_VIDEO" | "GUILD_ANNOUNCEMENT">("GUILD_TEXT");
   const [channelCategoryId, setChannelCategoryId] = useState("");
 
   const [emojiName, setEmojiName] = useState("");
@@ -432,7 +444,7 @@ export default function GuildSettingsModal({ isOpen, onClose, guild }: Props) {
     } finally {
       setExtrasLoading(false);
     }
-  }, [guild?.id, showNotice]);
+  }, [guild, showNotice]);
 
   useEffect(() => {
     setMounted(true);
@@ -888,10 +900,10 @@ export default function GuildSettingsModal({ isOpen, onClose, guild }: Props) {
       />
 
       <div className="flex h-full min-h-0 min-w-[900px] overflow-hidden">
-        <aside className="flex h-full w-[272px] shrink-0 flex-col border-r border-zinc-200 bg-zinc-50 dark:border-white/[0.07] dark:bg-[#111214]">
+        <aside className="flex h-full w-[280px] shrink-0 flex-col border-r border-zinc-200 bg-[#f7f7f8] dark:border-white/[0.07] dark:bg-[#111214]">
           <div className="shrink-0 border-b border-zinc-200 px-5 py-5 dark:border-white/[0.07]">
             <div className="flex items-center gap-3">
-              <div className="h-10 w-10 shrink-0 overflow-hidden rounded-xl bg-indigo-500 text-white shadow-sm">
+              <div className="h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-zinc-900 text-white dark:bg-zinc-800">
                 {guild.iconUrl ? (
                   <Avatar avatarUrl={guild.iconUrl} className="h-full w-full" />
                 ) : (
@@ -956,6 +968,12 @@ export default function GuildSettingsModal({ isOpen, onClose, guild }: Props) {
                 badge={extras?.guild._count.emojis ?? 0}
                 onClick={() => setTab("emojis")}
               />
+              <NavButton
+                active={tab === "production"}
+                icon={<Sparkles size={17} />}
+                label="Produção"
+                onClick={() => setTab("production")}
+              />
             </NavGroup>
 
             <NavGroup label="Moderação">
@@ -998,7 +1016,7 @@ export default function GuildSettingsModal({ isOpen, onClose, guild }: Props) {
         </aside>
 
         <main className="relative min-w-0 flex-1 overflow-hidden bg-white dark:bg-[#161719]">
-          <div className="absolute inset-x-0 top-0 z-20 flex h-16 items-center justify-between border-b border-zinc-200 bg-white/95 px-8 backdrop-blur dark:border-white/[0.07] dark:bg-[#161719]/95">
+          <div className="absolute inset-x-0 top-0 z-20 flex h-16 items-center justify-between border-b border-zinc-200 bg-white px-8 dark:border-white/[0.07] dark:bg-[#161719]">
             <div className="min-w-0">
               <div className="truncate text-sm font-bold text-zinc-900 dark:text-white">
                 {tabTitle(tab)}
@@ -1155,6 +1173,20 @@ export default function GuildSettingsModal({ isOpen, onClose, guild }: Props) {
                   canManage={Boolean(capabilities?.canManageExpressions)}
                   onCreate={() => void createEmoji()}
                   onDelete={(emoji) => setConfirmState({ type: "delete-emoji", emoji })}
+                />
+              )}
+
+              {tab === "production" && (
+                <ProductionTab
+                  guild={guild}
+                  roles={roles}
+                  members={members}
+                  channels={guild.channels ?? []}
+                  extras={extras}
+                  loading={loading || extrasLoading}
+                  capabilities={capabilities}
+                  showNotice={showNotice}
+                  reload={() => void loadExtras()}
                 />
               )}
 
@@ -2102,11 +2134,13 @@ function ChannelsTab({
               <Field label="Tipo">
                 <SelectInput
                   value={channelType}
-                  onChange={(event) => setChannelType(event.target.value as "GUILD_TEXT" | "GUILD_VOICE")}
+                  onChange={(event) => setChannelType(event.target.value as "GUILD_TEXT" | "GUILD_VOICE" | "GUILD_VIDEO" | "GUILD_ANNOUNCEMENT")}
                   disabled={!canManage || loading}
                 >
                   <option value="GUILD_TEXT">Canal de texto</option>
                   <option value="GUILD_VOICE">Canal de voz</option>
+                  <option value="GUILD_VIDEO">Canal de vídeo</option>
+                  <option value="GUILD_ANNOUNCEMENT">Canal de anúncios</option>
                 </SelectInput>
               </Field>
               <Field label="Categoria">
@@ -2128,7 +2162,7 @@ function ChannelsTab({
                 onClick={onCreateChannel}
                 disabled={!canManage || loading || !channelName.trim()}
               >
-                {channelType === "GUILD_VOICE" ? <Volume2 size={15} /> : <Hash size={15} />}
+                {channelType === "GUILD_VOICE" || channelType === "GUILD_VIDEO" ? <Volume2 size={15} /> : <Hash size={15} />}
                 Criar canal
               </PrimaryButton>
             </div>
@@ -2238,6 +2272,304 @@ function EmojisTab({
                 <EmptyState compact icon={<Smile size={24} />} title="Nenhum emoji personalizado" />
               </div>
             )}
+          </div>
+        </Card>
+      </div>
+    </section>
+  );
+}
+
+function ProductionTab({
+  guild,
+  roles,
+  members,
+  channels,
+  extras,
+  loading,
+  capabilities,
+  showNotice,
+  reload,
+}: any) {
+  const [onboardingRules, setOnboardingRules] = useState(extras?.onboarding?.rules ?? "");
+  const [onboardingQuestions, setOnboardingQuestions] = useState(
+    Array.isArray(extras?.onboarding?.questions) ? extras.onboarding.questions.join("\n") : "",
+  );
+  const [onboardingEnabled, setOnboardingEnabled] = useState(Boolean(extras?.onboarding?.enabled));
+  const [autoRoleIds, setAutoRoleIds] = useState<string[]>(extras?.onboarding?.autoRoleIds ?? []);
+  const [eventName, setEventName] = useState("");
+  const [eventStart, setEventStart] = useState("");
+  const [autoModName, setAutoModName] = useState("");
+  const [autoModTrigger, setAutoModTrigger] = useState("BLOCKED_WORD");
+  const [autoModKeywords, setAutoModKeywords] = useState("");
+  const [moderationMemberId, setModerationMemberId] = useState("");
+  const [moderationReason, setModerationReason] = useState("");
+  const [stickerName, setStickerName] = useState("");
+  const [stickerUrl, setStickerUrl] = useState("");
+  const [soundName, setSoundName] = useState("");
+  const [soundUrl, setSoundUrl] = useState("");
+  const [templateName, setTemplateName] = useState("");
+
+  useEffect(() => {
+    setOnboardingRules(extras?.onboarding?.rules ?? "");
+    setOnboardingQuestions(Array.isArray(extras?.onboarding?.questions) ? extras.onboarding.questions.join("\n") : "");
+    setOnboardingEnabled(Boolean(extras?.onboarding?.enabled));
+    setAutoRoleIds(extras?.onboarding?.autoRoleIds ?? []);
+  }, [extras?.onboarding]);
+
+  async function run(action: () => Promise<unknown>, message: string) {
+    try {
+      await action();
+      showNotice("success", message);
+      await reload();
+    } catch (error: any) {
+      showNotice("error", error?.message || "A ação não pôde ser concluída.");
+    }
+  }
+
+  const manageableRoles = roles.filter((role: any) => !role.isDefault && !role.managed);
+  const manageableMembers = members.filter((member: any) => member.userId !== guild.ownerId && !member.user?.bot);
+
+  return (
+    <section className="space-y-6">
+      <PageHeader
+        icon={<Sparkles size={22} />}
+        title="Produção"
+        description="Recursos avançados do servidor: onboarding, eventos, AutoMod, moderação, expressões, soundboard e templates."
+      />
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Card>
+          <SectionTitle icon={<UserCog size={15} />} title="Server onboarding" />
+          <div className="mt-4 space-y-3">
+            <SwitchRow
+              checked={onboardingEnabled}
+              onChange={setOnboardingEnabled}
+              title="Ativar onboarding"
+              description="Mostra regras e aplica cargos automáticos para novos membros."
+              disabled={!capabilities?.canManageGuild || loading}
+            />
+            <Field label="Regras do servidor">
+              <textarea
+                value={onboardingRules}
+                onChange={(event) => setOnboardingRules(event.target.value)}
+                rows={5}
+                maxLength={5000}
+                disabled={!capabilities?.canManageGuild || loading}
+                className="w-full resize-none rounded-xl border border-zinc-200 bg-white p-3 text-sm outline-none focus:border-indigo-500 dark:border-white/10 dark:bg-[#111214] dark:text-white"
+              />
+            </Field>
+            <Field label="Perguntas de entrada">
+              <textarea
+                value={onboardingQuestions}
+                onChange={(event) => setOnboardingQuestions(event.target.value)}
+                rows={3}
+                maxLength={2000}
+                placeholder="Uma pergunta por linha"
+                disabled={!capabilities?.canManageGuild || loading}
+                className="w-full resize-none rounded-xl border border-zinc-200 bg-white p-3 text-sm outline-none focus:border-indigo-500 dark:border-white/10 dark:bg-[#111214] dark:text-white"
+              />
+            </Field>
+            <Field label="Cargos automáticos">
+              <div className="grid gap-2 sm:grid-cols-2">
+                {manageableRoles.slice(0, 12).map((role: any) => (
+                  <label key={role.id} className="flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 text-sm dark:border-white/10">
+                    <input
+                      type="checkbox"
+                      checked={autoRoleIds.includes(role.id)}
+                      onChange={(event) =>
+                        setAutoRoleIds((current) =>
+                          event.target.checked
+                            ? [...current, role.id]
+                            : current.filter((id) => id !== role.id),
+                        )
+                      }
+                    />
+                    <span className="truncate">{role.name}</span>
+                  </label>
+                ))}
+              </div>
+            </Field>
+            <PrimaryButton
+              disabled={!capabilities?.canManageGuild || loading}
+              onClick={() =>
+                void run(
+                  () =>
+                    updateGuildOnboarding(guild.id, {
+                      enabled: onboardingEnabled,
+                      rules: onboardingRules,
+                      autoRoleIds,
+                      questions: onboardingQuestions
+                        .split("\n")
+                        .map((question: string) => question.trim())
+                        .filter(Boolean)
+                        .slice(0, 10),
+                      suggestedChannels: channels
+                        .filter((channel: any) => channel.type === "GUILD_TEXT")
+                        .slice(0, 5)
+                        .map((channel: any) => ({ id: channel.id, name: channel.name })),
+                    }),
+                  "Onboarding salvo.",
+                )
+              }
+            >
+              <Save size={15} />
+              Salvar onboarding
+            </PrimaryButton>
+          </div>
+        </Card>
+
+        <Card>
+          <SectionTitle icon={<FileClock size={15} />} title="Eventos agendados" />
+          <div className="mt-4 space-y-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <TextInput value={eventName} onChange={(event) => setEventName(event.target.value)} placeholder="Nome do evento" />
+              <TextInput value={eventStart} onChange={(event) => setEventStart(event.target.value)} type="datetime-local" />
+            </div>
+            <PrimaryButton
+              disabled={!capabilities?.canCreateEvents || loading || !eventName || !eventStart}
+              onClick={() =>
+                void run(
+                  () => createScheduledEvent(guild.id, { name: eventName, scheduledStartAt: new Date(eventStart).toISOString() }),
+                  "Evento criado.",
+                )
+              }
+            >
+              <Plus size={15} />
+              Criar evento
+            </PrimaryButton>
+            <div className="space-y-2">
+              {(extras?.scheduledEvents ?? []).slice(0, 6).map((event: any) => (
+                <div key={event.id} className="flex items-center justify-between gap-3 rounded-lg border border-zinc-200 px-3 py-2 text-sm dark:border-white/10">
+                  <div className="min-w-0">
+                    <div className="truncate font-semibold">{event.name}</div>
+                    <div className="text-xs text-zinc-500">{formatDate(event.scheduledStartAt)} · {event.status}</div>
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    {event.status === "SCHEDULED" && (
+                      <SecondaryButton disabled={!capabilities?.canManageEvents || loading} onClick={() => void run(() => updateScheduledEventStatus(event.id, "ACTIVE"), "Evento iniciado.")}>
+                        Iniciar
+                      </SecondaryButton>
+                    )}
+                    {event.status !== "COMPLETED" && (
+                      <SecondaryButton disabled={!capabilities?.canManageEvents || loading} onClick={() => void run(() => updateScheduledEventStatus(event.id, "COMPLETED"), "Evento finalizado.")}>
+                        Finalizar
+                      </SecondaryButton>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Card>
+
+        <Card>
+          <SectionTitle icon={<ShieldAlert size={15} />} title="AutoMod" />
+          <div className="mt-4 space-y-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <TextInput value={autoModName} onChange={(event) => setAutoModName(event.target.value)} placeholder="Nome da regra" />
+              <SelectInput value={autoModTrigger} onChange={(event) => setAutoModTrigger(event.target.value)}>
+                <option value="BLOCKED_WORD">Palavras proibidas</option>
+                <option value="SUSPICIOUS_LINK">Links suspeitos</option>
+                <option value="SPAM">Spam repetitivo</option>
+                <option value="FLOOD">Flood</option>
+                <option value="CAPS_LOCK">Caps lock</option>
+              </SelectInput>
+            </div>
+            <TextInput value={autoModKeywords} onChange={(event) => setAutoModKeywords(event.target.value)} placeholder="palavra1, palavra2" />
+            <PrimaryButton
+              disabled={!capabilities?.canManageGuild || loading || !autoModName}
+              onClick={() =>
+                void run(
+                  () =>
+                    createAutoModRule(guild.id, {
+                      name: autoModName,
+                      triggerType: autoModTrigger as any,
+                      actionType: "WARN",
+                      keywords: autoModKeywords.split(","),
+                    }),
+                  "Regra AutoMod criada.",
+                )
+              }
+            >
+              <Plus size={15} />
+              Criar regra
+            </PrimaryButton>
+            <div className="space-y-2">
+              {(extras?.autoModRules ?? []).slice(0, 6).map((rule: any) => (
+                <button
+                  key={rule.id}
+                  type="button"
+                  onClick={() => void run(() => toggleAutoModRule(rule.id, !rule.enabled), "Regra atualizada.")}
+                  className="flex w-full items-center justify-between gap-3 rounded-lg border border-zinc-200 px-3 py-2 text-left text-sm dark:border-white/10"
+                >
+                  <span className="min-w-0 truncate">{rule.name}</span>
+                  <span className={rule.enabled ? "text-emerald-500" : "text-zinc-500"}>{rule.enabled ? "Ativa" : "Pausada"}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </Card>
+
+        <Card>
+          <SectionTitle icon={<Gauge size={15} />} title="Warnings e timeouts" />
+          <div className="mt-4 space-y-3">
+            <SelectInput value={moderationMemberId} onChange={(event) => setModerationMemberId(event.target.value)}>
+              <option value="">Selecionar membro</option>
+              {manageableMembers.map((member: any) => (
+                <option key={member.id} value={member.id}>{displayName(member.user)}</option>
+              ))}
+            </SelectInput>
+            <TextInput value={moderationReason} onChange={(event) => setModerationReason(event.target.value)} placeholder="Motivo" />
+            <div className="flex flex-wrap gap-2">
+              <SecondaryButton
+                disabled={!capabilities?.canModerateMembers || loading || !moderationMemberId}
+                onClick={() => void run(() => createModerationWarning(moderationMemberId, moderationReason), "Advertência registrada.")}
+              >
+                Advertir
+              </SecondaryButton>
+              <DangerButton
+                disabled={!capabilities?.canModerateMembers || loading || !moderationMemberId}
+                onClick={() => void run(() => timeoutGuildMember(moderationMemberId, 3600, moderationReason), "Timeout aplicado.")}
+              >
+                Timeout 1h
+              </DangerButton>
+            </div>
+          </div>
+        </Card>
+
+        <Card>
+          <SectionTitle icon={<Smile size={15} />} title="Stickers e soundboard" />
+          <div className="mt-4 space-y-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <TextInput value={stickerName} onChange={(event) => setStickerName(event.target.value)} placeholder="Nome do sticker" />
+              <TextInput value={stickerUrl} onChange={(event) => setStickerUrl(event.target.value)} placeholder="URL ou key da imagem" />
+            </div>
+            <PrimaryButton disabled={!capabilities?.canManageExpressions || loading || !stickerName || !stickerUrl} onClick={() => void run(() => createGuildSticker(guild.id, { name: stickerName, url: stickerUrl }), "Sticker criado.")}>
+              Criar sticker
+            </PrimaryButton>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <TextInput value={soundName} onChange={(event) => setSoundName(event.target.value)} placeholder="Nome do som" />
+              <TextInput value={soundUrl} onChange={(event) => setSoundUrl(event.target.value)} placeholder="URL ou key do áudio" />
+            </div>
+            <PrimaryButton disabled={!capabilities?.canManageExpressions || loading || !soundName || !soundUrl} onClick={() => void run(() => createSoundboardSound(guild.id, { name: soundName, url: soundUrl }), "Som criado.")}>
+              Criar som
+            </PrimaryButton>
+          </div>
+        </Card>
+
+        <Card>
+          <SectionTitle icon={<Blocks size={15} />} title="Server templates" />
+          <div className="mt-4 space-y-3">
+            <TextInput value={templateName} onChange={(event) => setTemplateName(event.target.value)} placeholder="Nome do template" />
+            <PrimaryButton disabled={!capabilities?.canManageGuild || loading || !templateName} onClick={() => void run(() => createServerTemplate(guild.id, { name: templateName, public: false }), "Template gerado.")}>
+              <Copy size={15} />
+              Gerar template
+            </PrimaryButton>
+            <div className="space-y-2">
+              {(extras?.templates ?? []).slice(0, 5).map((template: any) => (
+                <InfoLine key={template.id} label={template.name} value={template.code} mono copyable />
+              ))}
+            </div>
           </div>
         </Card>
       </div>
@@ -2628,7 +2960,7 @@ function PageHeader({ icon, title, description, action }: { icon: ReactNode; tit
   return (
     <div className="flex items-start justify-between gap-5">
       <div className="flex min-w-0 items-start gap-3">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-300">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-zinc-700 ring-1 ring-inset ring-zinc-200 dark:bg-white/[0.04] dark:text-zinc-300 dark:ring-white/10">
           {icon}
         </div>
         <div className="min-w-0">
@@ -2656,9 +2988,9 @@ function NavButton({ active, icon, label, badge, onClick }: any) {
       type="button"
       onClick={onClick}
       className={classNames(
-        "flex h-10 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-semibold transition",
+        "flex h-10 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-semibold transition",
         active
-          ? "bg-indigo-500/10 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300"
+          ? "bg-zinc-200 text-zinc-950 dark:bg-white/[0.08] dark:text-white"
           : "text-zinc-600 hover:bg-zinc-200/70 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-white/[0.055] dark:hover:text-white",
       )}
     >
@@ -2673,7 +3005,7 @@ function NavButton({ active, icon, label, badge, onClick }: any) {
 
 function Card({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={classNames("rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-white/[0.07] dark:bg-[#1e1f22]", className)}>
+    <div className={classNames("rounded-lg border border-zinc-200 bg-white p-5 shadow-sm dark:border-white/[0.07] dark:bg-[#1e1f22]", className)}>
       {children}
     </div>
   );
@@ -2926,6 +3258,7 @@ function tabTitle(tab: Tab) {
     emojis: "Emojis",
     bans: "Banimentos",
     audit: "Registro de auditoria",
+    production: "Produção",
     advanced: "Avançado",
   };
   return labels[tab];
@@ -2941,6 +3274,7 @@ function tabSubtitle(tab: Tab) {
     emojis: "Expressões personalizadas",
     bans: "Controle de membros impedidos",
     audit: "Histórico administrativo",
+    production: "Onboarding, eventos, AutoMod e recursos avançados",
     advanced: "Propriedade e ações sensíveis",
   };
   return labels[tab];

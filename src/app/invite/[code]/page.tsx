@@ -122,7 +122,7 @@ export default async function InvitePage({
 
   if (
     invite.expiresAt &&
-    invite.expiresAt.getTime() <= Date.now()
+    invite.expiresAt <= new Date()
   ) {
     return (
       <InviteClient

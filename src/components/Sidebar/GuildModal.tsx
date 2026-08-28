@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowLeft, ArrowRight, Check, Gamepad2, GraduationCap, Heart, ImagePlus, Plus, Users } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Copy, Gamepad2, GraduationCap, Heart, ImagePlus, Plus, Users } from "lucide-react";
 import Modal from "../Modal";
-import { createGuild } from "@/actions/guilds";
+import { createGuild, createGuildFromTemplate } from "@/actions/guilds";
+import { acceptGuildInvite } from "@/actions/invites";
 import { useRouter } from "next/navigation";
 
 type ModalStep = "options" | "create" | "join";
@@ -18,6 +19,7 @@ export default function GuildModal({ isOpen, onClose }: GuildModalProps) {
   const [modalStep, setModalStep] = useState<ModalStep>("options");
   const [guildName, setGuildName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
+  const [templateCode, setTemplateCode] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
   const handleClose = () => {
@@ -26,6 +28,7 @@ export default function GuildModal({ isOpen, onClose }: GuildModalProps) {
       setModalStep("options");
       setGuildName("");
       setInviteCode("");
+      setTemplateCode("");
     }, 300);
   };
 
@@ -46,11 +49,44 @@ export default function GuildModal({ isOpen, onClose }: GuildModalProps) {
     }
   };
 
-  const handleJoinGuild = () => {
+  const handleJoinGuild = async () => {
     const invite = inviteCode.trim();
-    if (!invite) return;
-    // TODO: Implementar joinGuild na Server Action
-    handleClose();
+    if (!invite || isLoading) return;
+
+    const code = invite
+      .split("/")
+      .filter(Boolean)
+      .pop()
+      ?.trim();
+
+    if (!code) return;
+
+    try {
+      setIsLoading(true);
+      await acceptGuildInvite(code);
+      handleClose();
+      router.refresh();
+    } catch (error) {
+      console.error("Erro ao entrar na guild", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCreateFromTemplate = async () => {
+    const code = templateCode.trim();
+    if (!code || isLoading) return;
+
+    try {
+      setIsLoading(true);
+      await createGuildFromTemplate(code, guildName.trim() || undefined);
+      handleClose();
+      router.refresh();
+    } catch (error) {
+      console.error("Erro ao criar guild por template", error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const getModalTitle = () => {
@@ -107,6 +143,30 @@ export default function GuildModal({ isOpen, onClose }: GuildModalProps) {
                 <ArrowRight className="h-4 w-4 text-zinc-400" />
               </button>
             ))}
+          </div>
+
+          <div className="space-y-2 rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-900">
+            <label htmlFor="template-code" className="block text-xs font-bold uppercase text-zinc-600 dark:text-zinc-400">
+              Código de template
+            </label>
+            <input
+              id="template-code"
+              type="text"
+              value={templateCode}
+              onChange={(e) => setTemplateCode(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") void handleCreateFromTemplate(); }}
+              placeholder="Cole o código gerado nas configurações"
+              className="h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none transition-all placeholder:text-zinc-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-zinc-700 dark:bg-black dark:text-zinc-100 dark:placeholder:text-zinc-600"
+            />
+            <button
+              type="button"
+              onClick={() => void handleCreateFromTemplate()}
+              disabled={!templateCode.trim() || isLoading}
+              className="flex w-full items-center justify-center gap-2 rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-800 dark:hover:bg-zinc-700"
+            >
+              <Copy className="h-4 w-4" />
+              Criar pelo template
+            </button>
           </div>
 
           <div className="mt-4 border-t border-zinc-200 pt-4 dark:border-zinc-800">
@@ -194,7 +254,7 @@ export default function GuildModal({ isOpen, onClose }: GuildModalProps) {
               type="text"
               value={inviteCode}
               onChange={(e) => setInviteCode(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") handleJoinGuild(); }}
+              onKeyDown={(e) => { if (e.key === "Enter") void handleJoinGuild(); }}
               placeholder="https://sua-url.com/convite/abc123"
               autoFocus
               className="h-11 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none transition-all placeholder:text-zinc-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-600"
@@ -211,12 +271,12 @@ export default function GuildModal({ isOpen, onClose }: GuildModalProps) {
             </button>
             <button
               type="button"
-              onClick={handleJoinGuild}
-              disabled={!inviteCode.trim()}
+              onClick={() => void handleJoinGuild()}
+              disabled={!inviteCode.trim() || isLoading}
               className="flex items-center gap-2 rounded-md bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white transition-all hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Users className="h-4 w-4" />
-              <span>Entrar</span>
+              <span>{isLoading ? "Entrando..." : "Entrar"}</span>
             </button>
           </div>
         </div>

@@ -1,26 +1,38 @@
-// ROTA: /api/direct-messages/messages/[messageId]/reactions
-// MÉTODOS: POST
-// POST: Alterna uma reação do usuário autenticado em uma mensagem direta.
-
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/current-user";
-import { assertConversationMember } from "@/lib/direct-messages.server";
+import {
+  assertConversationMember,
+  directMessageInclude,
+  serializeDirectMessage,
+} from "@/lib/direct-messages.server";
+import { emitToUser } from "@/lib/realtime/emitter";
+import {
+  enforceRateLimit,
+  isSameOriginRequest,
+  sameOriginError,
+} from "@/lib/request-security";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 type RouteContext = {
-  params: Promise<{
-    messageId: string;
-  }>;
+  params: Promise<{ messageId: string }>;
 };
 
-export async function POST(
-  request: NextRequest,
-  context: RouteContext,
-) {
-  try {
-    const currentUser = await getCurrentUser();
+const reactionSchema = z.object({
+  emoji: z.string().trim().min(1).max(32),
+});
 
+export async function POST(request: NextRequest, context: RouteContext) {
+  try {
+    if (!isSameOriginRequest(request)) {
+      return sameOriginError();
+    }
+
+    const currentUser = await getCurrentUser();
     if (!currentUser) {
       return NextResponse.json(
         { success: false, message: "Não autorizado." },
@@ -28,15 +40,21 @@ export async function POST(
       );
     }
 
+    const limited = await enforceRateLimit(
+      request,
+      "dm-reaction",
+      90,
+      60,
+      currentUser.id,
+    );
+    if (limited) return limited;
+
     const { messageId } = await context.params;
-    const body = (await request.json()) as {
-      emoji?: unknown;
-    };
+    const parsed = reactionSchema.safeParse(
+      await request.json().catch(() => null),
+    );
 
-    const emoji =
-      typeof body.emoji === "string" ? body.emoji.trim() : "";
-
-    if (!emoji || emoji.length > 16) {
+    if (!parsed.success) {
       return NextResponse.json(
         { success: false, message: "Emoji inválido." },
         { status: 400 },
@@ -44,9 +62,7 @@ export async function POST(
     }
 
     const message = await db.directMessage.findUnique({
-      where: {
-        id: messageId,
-      },
+      where: { id: messageId },
       select: {
         conversationId: true,
         deleted: true,
@@ -60,11 +76,9 @@ export async function POST(
       );
     }
 
-    await assertConversationMember(
-      message.conversationId,
-      currentUser.id,
-    );
+    await assertConversationMember(message.conversationId, currentUser.id);
 
+    const emoji = parsed.data.emoji;
     const existing = await db.directMessageReaction.findUnique({
       where: {
         messageId_userId_emoji: {
@@ -73,36 +87,68 @@ export async function POST(
           emoji,
         },
       },
+      select: { id: true },
     });
+
+    let reacted: boolean;
 
     if (existing) {
-      await db.directMessageReaction.delete({
-        where: {
-          id: existing.id,
+      await db.directMessageReaction.delete({ where: { id: existing.id } });
+      reacted = false;
+    } else {
+      await db.directMessageReaction.create({
+        data: {
+          messageId,
+          userId: currentUser.id,
+          emoji,
         },
       });
-
-      return NextResponse.json({
-        success: true,
-        reacted: false,
-      });
+      reacted = true;
     }
 
-    await db.directMessageReaction.create({
-      data: {
-        messageId,
-        userId: currentUser.id,
-        emoji,
+    const updated = await db.directMessage.findUnique({
+      where: { id: messageId },
+      include: directMessageInclude,
+    });
+
+    if (!updated) {
+      return NextResponse.json(
+        { success: false, message: "Mensagem não encontrada." },
+        { status: 404 },
+      );
+    }
+
+    const participants = await db.directConversationParticipant.findMany({
+      where: { conversationId: message.conversationId },
+      select: { userId: true },
+    });
+
+    await Promise.allSettled(
+      participants.map((participant) =>
+        emitToUser(participant.userId, "MESSAGE_UPDATE", {
+          conversationId: message.conversationId,
+          message: serializeDirectMessage(updated, participant.userId),
+        }),
+      ),
+    );
+
+    return NextResponse.json(
+      {
+        success: true,
+        reacted,
+        message: serializeDirectMessage(updated, currentUser.id),
       },
-    });
-
-    return NextResponse.json({
-      success: true,
-      reacted: true,
-    });
+      { headers: { "Cache-Control": "no-store" } },
+    );
   } catch (error) {
-    console.error("[DIRECT_MESSAGE_REACTION]", error);
+    if (error instanceof Error && error.message === "FORBIDDEN") {
+      return NextResponse.json(
+        { success: false, message: "Sem acesso a esta conversa." },
+        { status: 403 },
+      );
+    }
 
+    console.error("[DIRECT_MESSAGE_REACTION]", error);
     return NextResponse.json(
       { success: false, message: "Não foi possível atualizar a reação." },
       { status: 500 },

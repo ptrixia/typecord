@@ -1,0 +1,39 @@
+{
+  "name": "@prixia/sdk",
+  "version": "0.1.0",
+  "description": "SDK oficial para criar bots e integrações do Typecord.",
+  "private": false,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "package.json"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.check.json --noEmit",
+    "prepublishOnly": "npm run build && npm run typecheck"
+  },
+  "keywords": [
+    "typecord",
+    "bot",
+    "gateway",
+    "sdk",
+    "discord"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "socket.io-client": "^4.8.3"
+  }
+}

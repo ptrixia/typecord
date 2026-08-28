@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redis } from "@/lib/redis";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/current-user";
+import { dispatchGuildEvent } from "@/lib/gateway/guild-events";
 import { Permissions } from "@/lib/permissions";
 import { requirePermission } from "@/lib/permissions.server";
 
@@ -140,12 +141,32 @@ export async function acceptGuildInvite(code: string) {
       });
     }
 
+    const onboarding = await tx.guildOnboarding.findUnique({
+      where: { guildId },
+      select: { enabled: true, autoRoleIds: true },
+    });
+
+    const autoRoles = onboarding?.enabled && onboarding.autoRoleIds.length
+      ? await tx.role.findMany({
+          where: {
+            guildId,
+            id: { in: onboarding.autoRoleIds },
+            isDefault: false,
+            managed: false,
+          },
+          select: { id: true },
+        })
+      : [];
+
     await tx.member.create({
       data: {
         userId: user.id,
         guildId,
         roles: {
-          connect: { id: everyoneRole.id },
+          connect: [
+            { id: everyoneRole.id },
+            ...autoRoles.map((role) => ({ id: role.id })),
+          ],
         },
       },
     });
@@ -181,6 +202,9 @@ export async function acceptGuildInvite(code: string) {
 
   await redis.del(`user:${user.id}:guilds`);
   revalidatePath(`/channels/${result.guildId}`);
+  await dispatchGuildEvent(result.guildId, "GUILD_MEMBER_ADD", {
+    userId: user.id,
+  });
 
   return result;
 }
@@ -309,6 +333,9 @@ export async function createGuildInvite(
   });
 
   revalidatePath(`/channels/${guildId}`);
+  await dispatchGuildEvent(guildId, "INVITE_CREATE", {
+    invite,
+  });
 
   return invite;
 }
@@ -346,6 +373,10 @@ export async function deleteGuildInvite(
   });
 
   revalidatePath(`/channels/${guildId}`);
+  await dispatchGuildEvent(guildId, "INVITE_DELETE", {
+    inviteId: invite.id,
+    code: invite.code,
+  });
 
   return {
     success: true,

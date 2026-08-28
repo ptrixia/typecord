@@ -1,56 +1,182 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Modal from "./Modal"; // Ajuste o caminho para onde está o seu Modal
+import { useEffect, useMemo, useState } from "react";
+import {
+  Hash,
+  MessageSquare,
+  Search,
+  Settings,
+  Sparkles,
+} from "lucide-react";
+import { useRouter } from "next/navigation";
+import Modal from "./Modal";
 
-export default function SearchCommand() {
+export type CommandItem = {
+  id: string;
+  label: string;
+  description?: string;
+  keywords?: string[];
+  icon?: React.ReactNode;
+  href?: string;
+  action?: () => void | Promise<void>;
+};
+
+interface SearchCommandProps {
+  items?: CommandItem[];
+  buttonClassName?: string;
+}
+
+function defaultIcon(item: CommandItem) {
+  if (item.href?.includes("@me")) return <MessageSquare className="h-4 w-4" />;
+  if (item.href?.includes("/channels/")) return <Hash className="h-4 w-4" />;
+  if (item.label.toLowerCase().includes("config")) return <Settings className="h-4 w-4" />;
+  return <Sparkles className="h-4 w-4" />;
+}
+
+export default function SearchCommand({
+  items = [],
+  buttonClassName,
+}: SearchCommandProps) {
+  const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Verifica se CTRL (Windows/Linux) ou META (Mac) está pressionado junto com a tecla 'k'
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault(); // Evita que o navegador foque na barra de pesquisa padrão
-        setIsOpen((open) => !open); // Alterna o modal entre aberto/fechado
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setIsOpen((open) => !open);
       }
     };
 
-    // Adiciona o listener no documento inteiro
     document.addEventListener("keydown", handleKeyDown);
-    
-    // Limpa o listener quando o componente for desmontado para evitar vazamento de memória
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  const filtered = useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase("pt-BR");
+    if (!normalized) return items.slice(0, 10);
+
+    return items
+      .filter((item) => {
+        const haystack = [
+          item.label,
+          item.description,
+          ...(item.keywords ?? []),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLocaleLowerCase("pt-BR");
+
+        return haystack.includes(normalized);
+      })
+      .slice(0, 12);
+  }, [items, query]);
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [query, isOpen]);
+
+  async function runCommand(item: CommandItem) {
+    setIsOpen(false);
+    setQuery("");
+
+    if (item.action) {
+      await item.action();
+      return;
+    }
+
+    if (item.href) {
+      router.push(item.href);
+    }
+  }
+
+  function handleInputKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActiveIndex((current) => Math.min(current + 1, filtered.length - 1));
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveIndex((current) => Math.max(current - 1, 0));
+    }
+
+    if (event.key === "Enter" && filtered[activeIndex]) {
+      event.preventDefault();
+      void runCommand(filtered[activeIndex]);
+    }
+  }
+
   return (
     <>
-      {/* Botão opcional para o usuário clicar caso não queira usar o atalho */}
       <button
+        type="button"
         onClick={() => setIsOpen(true)}
-        className="flex items-center gap-4 rounded-md border border-zinc-200 bg-zinc-100 px-3 py-1.5 text-sm text-zinc-500 hover:bg-zinc-200 transition-colors dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
+        className={
+          buttonClassName ??
+          "flex items-center gap-4 rounded-md border border-zinc-200 bg-zinc-100 px-3 py-1.5 text-sm text-zinc-500 transition-colors hover:bg-zinc-200 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
+        }
       >
         <span>Buscar no Typecord...</span>
         <kbd className="pointer-events-none inline-flex h-5 items-center gap-1 rounded border border-zinc-200 bg-zinc-50 px-1.5 font-mono text-[10px] font-medium text-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-400">
-          <span className="text-xs">⌘</span>K
+          Ctrl K
         </kbd>
       </button>
 
-      {/* Renderiza o seu Modal passando o estado */}
       <Modal
         isOpen={isOpen}
         onClose={() => setIsOpen(false)}
-        title="Busca Rápida"
+        title="Command palette"
       >
-        <div className="mt-4 flex flex-col gap-4">
-          <input
-            type="text"
-            placeholder="Para onde você quer ir?"
-            autoFocus // Foca automaticamente no input quando o modal abre
-            className="w-full rounded-md border border-zinc-300 bg-transparent px-3 py-2 text-sm placeholder:text-zinc-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-zinc-700 dark:text-zinc-50 dark:focus:border-blue-500"
-          />
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">
-            Comece a digitar para buscar canais, servidores ou configurações.
-          </p>
+        <div className="space-y-3">
+          <label className="flex h-11 items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/10 dark:border-white/10 dark:bg-[#111214]">
+            <Search className="h-4 w-4 shrink-0 text-zinc-500" />
+            <input
+              type="text"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={handleInputKeyDown}
+              placeholder="Ir para canal, DM, config ou status"
+              autoFocus
+              className="min-w-0 flex-1 bg-transparent text-sm text-zinc-950 outline-none placeholder:text-zinc-400 dark:text-white"
+            />
+          </label>
+
+          <div className="max-h-[380px] overflow-y-auto rounded-xl border border-zinc-200 p-1 dark:border-white/10">
+            {filtered.length === 0 ? (
+              <div className="px-3 py-8 text-center text-sm text-zinc-500">
+                Nenhum comando encontrado.
+              </div>
+            ) : (
+              filtered.map((item, index) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onMouseEnter={() => setActiveIndex(index)}
+                  onClick={() => void runCommand(item)}
+                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition ${
+                    index === activeIndex
+                      ? "bg-indigo-500 text-white"
+                      : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-white/[0.06]"
+                  }`}
+                >
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-black/5 dark:bg-white/10">
+                    {item.icon ?? defaultIcon(item)}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-bold">{item.label}</span>
+                    {item.description && (
+                      <span className={`mt-0.5 block truncate text-xs ${index === activeIndex ? "text-white/75" : "text-zinc-500"}`}>
+                        {item.description}
+                      </span>
+                    )}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
         </div>
       </Modal>
     </>

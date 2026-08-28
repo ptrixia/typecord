@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "node:crypto";
 
 import { db } from "@/lib/db";
+import { enforceRateLimit } from "@/lib/request-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,7 +44,7 @@ export async function GET(request: NextRequest) {
 
     const botToken = authorization.slice(4).trim();
 
-    if (!botToken) {
+    if (!botToken || botToken.length > 512) {
       return json(
         {
           success: false,
@@ -90,6 +91,15 @@ export async function GET(request: NextRequest) {
         403,
       );
     }
+
+    const limited = await enforceRateLimit(
+      request,
+      "gateway-session",
+      20,
+      60,
+      bot.id,
+    );
+    if (limited) return limited;
 
     const memberships = await db.member.findMany({
       where: {

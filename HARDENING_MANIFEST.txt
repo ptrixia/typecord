@@ -1,0 +1,57 @@
+# Hardened files changed relative to typecord(2).zip
+
+.env.example -> .env.example differ
+Only in /mnt/data/typecord_audited: .gitignore
+Only in /mnt/data/typecord_audited: HARDENING_MANIFEST.txt
+Only in /mnt/data/typecord_audited: PRODUCTION_README.md
+Only in /mnt/data/typecord_audited: SECURITY_AUDIT.md
+next.config.ts -> next.config.ts differ
+package.json -> package.json differ
+ADDED prisma/migrations: 20260826150000_security_hardening
+prisma/schema.prisma -> prisma/schema.prisma differ
+realtime/websocket.ts -> realtime/websocket.ts differ
+src/actions/discover.ts -> src/actions/discover.ts differ
+src/actions/messages.ts -> src/actions/messages.ts differ
+src/actions/permission-overwrites.ts -> src/actions/permission-overwrites.ts differ
+REMOVED src/actions: test-welcome.ts
+src/app/api/channels/[channelId]/messages/route.ts -> src/app/api/channels/[channelId]/messages/route.ts differ
+src/app/api/developers/bots/[botId]/install/route.ts -> src/app/api/developers/bots/[botId]/install/route.ts differ
+src/app/api/developers/bots/[botId]/token/route.ts -> src/app/api/developers/bots/[botId]/token/route.ts differ
+src/app/api/developers/bots/route.ts -> src/app/api/developers/bots/route.ts differ
+src/app/api/direct-messages/conversations/[conversationId]/messages/route.ts -> src/app/api/direct-messages/conversations/[conversationId]/messages/route.ts differ
+src/app/api/direct-messages/messages/[messageId]/reactions/route.ts -> src/app/api/direct-messages/messages/[messageId]/reactions/route.ts differ
+src/app/api/direct-messages/messages/[messageId]/route.ts -> src/app/api/direct-messages/messages/[messageId]/route.ts differ
+src/app/api/direct-messages/typing/route.ts -> src/app/api/direct-messages/typing/route.ts differ
+src/app/api/files/download/route.ts -> src/app/api/files/download/route.ts differ
+src/app/api/files/route.ts -> src/app/api/files/route.ts differ
+src/app/api/gateway/auth/route.ts -> src/app/api/gateway/auth/route.ts differ
+src/app/api/gateway/route.ts -> src/app/api/gateway/route.ts differ
+src/app/api/guilds/route.ts -> src/app/api/guilds/route.ts differ
+src/app/api/livekit/route.ts -> src/app/api/livekit/route.ts differ
+src/app/api/livekit/token/route.ts -> src/app/api/livekit/token/route.ts differ
+src/app/api/messages/route.ts -> src/app/api/messages/route.ts differ
+src/app/api/realtime/token/route.ts -> src/app/api/realtime/token/route.ts differ
+src/app/api/realtime/voice-state/route.ts -> src/app/api/realtime/voice-state/route.ts differ
+src/app/api/register/route.ts -> src/app/api/register/route.ts differ
+src/app/api/typing/route.ts -> src/app/api/typing/route.ts differ
+src/app/api/upload/route.ts -> src/app/api/upload/route.ts differ
+src/app/api/webhooks/[channelId]/route.ts -> src/app/api/webhooks/[channelId]/route.ts differ
+src/app/developers/layout.tsx -> src/app/developers/layout.tsx differ
+src/app/developers/page.tsx -> src/app/developers/page.tsx differ
+src/components/DirectMessages/UserProfileModal.tsx -> src/components/DirectMessages/UserProfileModal.tsx differ
+src/components/Guild/ChannelsSideBar.tsx -> src/components/Guild/ChannelsSideBar.tsx differ
+src/components/Guild/MembersSidebar.tsx -> src/components/Guild/MembersSidebar.tsx differ
+src/components/Guild/TextChatArea.tsx -> src/components/Guild/TextChatArea.tsx differ
+src/components/Sidebar/SidebarClient.tsx -> src/components/Sidebar/SidebarClient.tsx differ
+src/lib/auth.ts -> src/lib/auth.ts differ
+ADDED src/lib: channel-permissions.ts
+src/lib/direct-messages.server.ts -> src/lib/direct-messages.server.ts differ
+src/lib/gateway/message-events.ts -> src/lib/gateway/message-events.ts differ
+src/lib/permissions.server.ts -> src/lib/permissions.server.ts differ
+REMOVED src/lib: pusher.ts
+ADDED src/lib: request-security.ts
+ADDED src/lib: storage-access.ts
+src/lib/storage.ts -> src/lib/storage.ts differ
+src/lib/validations.ts -> src/lib/validations.ts differ
+src/middleware.ts -> src/middleware.ts differ
+Only in /mnt/data/typecord_audited: tsconfig.tsbuildinfo

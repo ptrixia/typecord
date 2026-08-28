@@ -22,6 +22,7 @@ import {
   HeadphoneOff,
   Loader2,
   LogOut,
+  Megaphone,
   MicOff,
   Monitor,
   MoreHorizontal,
@@ -40,6 +41,9 @@ import {
 import { useRouter } from "next/navigation";
 
 import { createChannel } from "@/actions/channels";
+import { leaveGuild } from "@/actions/guild-settings";
+import { UnreadBadge } from "@/components/app/ActivityProvider";
+import { useToast } from "@/components/app/ToastProvider";
 import {
   Permissions,
   hasPermission,
@@ -48,13 +52,14 @@ import {
 import { onGatewayEvent } from "@/lib/realtime/gateway-client";
 
 import Avatar from "../Image/Avatar";
+import ConfirmModal from "../ConfirmModal";
 import Modal from "../Modal";
 import UserProfileSideBar from "../UserProfileSideBar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import ChannelSettingsModal from "./ChannelSettingsModal";
 import GuildSettingsModal from "./GuildSettingsModal";
 
-type ChannelType = "GUILD_TEXT" | "GUILD_VOICE";
+type ChannelType = "GUILD_TEXT" | "GUILD_VOICE" | "GUILD_VIDEO" | "GUILD_ANNOUNCEMENT";
 type DropPosition = "before" | "after";
 
 interface ChannelsSidebarProps {
@@ -287,11 +292,14 @@ export default function ChannelsSidebar({
   currentMember,
 }: ChannelsSidebarProps) {
   const router = useRouter();
+  const { pushToast } = useToast();
   const dropdownRef = useRef<HTMLDivElement>(null);
   const feedbackTimerRef = useRef<number | null>(null);
 
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [leaveGuildConfirmOpen, setLeaveGuildConfirmOpen] = useState(false);
+  const [isLeavingGuild, setIsLeavingGuild] = useState(false);
   const [isCreateChannelModalOpen, setIsCreateChannelModalOpen] =
     useState(false);
   const [isChannelListCollapsed, setIsChannelListCollapsed] = useState(false);
@@ -395,6 +403,16 @@ export default function ChannelsSidebar({
 
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    const openSettings = () => {
+      setIsSettingsModalOpen(true);
+      setIsDropdownOpen(false);
+    };
+
+    window.addEventListener("typecord:open-guild-settings", openSettings);
+    return () => window.removeEventListener("typecord:open-guild-settings", openSettings);
   }, []);
 
   useEffect(() => {
@@ -520,32 +538,37 @@ export default function ChannelsSidebar({
 
         setVoiceUsers((current) => {
           const next = Object.fromEntries(
-            Object.entries(current).map(([id, entries]) => [
-              id,
-              entries.filter((entry) => entry.userId !== userId),
-            ]),
+            (Object.entries(current) as Array<[string, VoicePresence[]]>).map(
+              ([id, entries]) => [
+                id,
+                entries.filter((entry) => entry.userId !== userId),
+              ],
+            ),
           ) as VoicePresenceMap;
 
-          const previousPresence = Object.values(current)
+          const previousPresence = (Object.values(current) as VoicePresence[][])
             .flat()
             .find((entry) => entry.userId === userId);
 
           if (connected && channelId) {
+            const nextPresence: VoicePresence =
+              presence ??
+              previousPresence ?? {
+                userId,
+                connected: true,
+                muted: false,
+                deafened: false,
+                camera: false,
+                streaming: false,
+                speaking: false,
+                ping: null,
+                connectionQuality: null,
+              };
+
             next[channelId] = [
               ...(next[channelId] ?? []),
               {
-                ...(previousPresence ?? {
-                  userId,
-                  connected: true,
-                  muted: false,
-                  deafened: false,
-                  camera: false,
-                  streaming: false,
-                  speaking: false,
-                  ping: null,
-                  connectionQuality: null,
-                }),
-                ...(presence ?? {}),
+                ...nextPresence,
                 userId,
                 connected: true,
               },
@@ -565,7 +588,7 @@ export default function ChannelsSidebar({
 
   const inferredVoiceChannel =
     orderedChannels.find((channel: any) => {
-      if (channel?.type !== "GUILD_VOICE") return false;
+      if (channel?.type !== "GUILD_VOICE" && channel?.type !== "GUILD_VIDEO") return false;
       return (voiceUsers[String(channel.id)] ?? []).some(
         (presence) => presence.userId === currentUserId,
       );
@@ -612,9 +635,34 @@ export default function ChannelsSidebar({
     }
   };
 
+  const handleLeaveGuild = async () => {
+    if (!guild?.id) return;
+
+    try {
+      setIsLeavingGuild(true);
+      await leaveGuild(String(guild.id));
+      pushToast({
+        type: "success",
+        title: "Você saiu do servidor.",
+        description: guild.name,
+      });
+      router.push("/channels/@me");
+      router.refresh();
+      setLeaveGuildConfirmOpen(false);
+    } catch (error) {
+      pushToast({
+        type: "error",
+        title: "Não foi possível sair do servidor",
+        description: error instanceof Error ? error.message : "Tente novamente.",
+      });
+    } finally {
+      setIsLeavingGuild(false);
+    }
+  };
+
   const handleChannelClick = (channel: any) => {
     onSelectChannel(channel);
-    if (channel?.type === "GUILD_VOICE") onJoinVoice?.(channel);
+    if (channel?.type === "GUILD_VOICE" || channel?.type === "GUILD_VIDEO") onJoinVoice?.(channel);
   };
 
   const openEditChannel = (channel: any) => {
@@ -1069,6 +1117,7 @@ export default function ChannelsSidebar({
               <div className="my-1 h-px bg-stone-200 dark:bg-white/[0.07]" />
               <button
                 type="button"
+                onClick={() => setLeaveGuildConfirmOpen(true)}
                 className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold text-red-500 transition hover:bg-red-500 hover:text-white"
               >
                 Sair do servidor
@@ -1429,6 +1478,7 @@ export default function ChannelsSidebar({
                                       {userLimit > 0 ? `/${userLimit}` : ""}
                                     </span>
                                   )}
+                                  {!isActive && <UnreadBadge scopeId={channelId} />}
                                 </button>
 
                                 {canManageChannels && (
@@ -1656,6 +1706,28 @@ export default function ChannelsSidebar({
 
             {onLeaveVoice && (
               <div className="border-t border-emerald-400/10 p-1.5">
+                {(guild?.soundboardSounds ?? []).length > 0 && (
+                  <div className="mb-1 grid grid-cols-2 gap-1">
+                    {(guild.soundboardSounds ?? []).slice(0, 4).map((sound: any) => (
+                      <button
+                        key={sound.id}
+                        type="button"
+                        onClick={() => {
+                          void fetch(`/api/soundboard/${encodeURIComponent(sound.id)}/play`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ channelId: displayedVoiceChannel.id }),
+                          }).catch((error) => console.error("[SOUNDBOARD_PLAY_CLIENT]", error));
+                        }}
+                        className="truncate rounded-lg bg-white/[0.04] px-2 py-1.5 text-[10px] font-bold text-emerald-600 transition hover:bg-emerald-500/10 dark:text-emerald-300"
+                        title={sound.name}
+                      >
+                        {sound.emoji ? `${sound.emoji} ` : ""}
+                        {sound.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={onLeaveVoice}
@@ -1714,6 +1786,18 @@ export default function ChannelsSidebar({
                   description: "Voz, vídeo e transmissão de tela.",
                   icon: Volume2,
                 },
+                {
+                  type: "GUILD_VIDEO" as const,
+                  label: "Vídeo",
+                  description: "Salas com câmera em destaque.",
+                  icon: Video,
+                },
+                {
+                  type: "GUILD_ANNOUNCEMENT" as const,
+                  label: "Anúncios",
+                  description: "Comunicados oficiais do servidor.",
+                  icon: Megaphone,
+                },
               ].map((option) => {
                 const Icon = option.icon;
                 const selected = channelType === option.type;
@@ -1752,7 +1836,7 @@ export default function ChannelsSidebar({
               Nome do canal
             </span>
             <div className="flex h-11 items-center gap-2 rounded-xl border border-zinc-300 bg-white px-3 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/10 dark:border-white/10 dark:bg-black/30">
-              {channelType === "GUILD_TEXT" ? (
+              {channelType === "GUILD_TEXT" || channelType === "GUILD_ANNOUNCEMENT" ? (
                 <Hash className="h-4 w-4 text-zinc-500" />
               ) : (
                 <Volume2 className="h-4 w-4 text-zinc-500" />
@@ -1764,7 +1848,11 @@ export default function ChannelsSidebar({
                   if (event.key === "Enter") void handleCreateChannel();
                 }}
                 placeholder={
-                  channelType === "GUILD_TEXT" ? "novo-canal" : "Sala de voz"
+                  channelType === "GUILD_TEXT"
+                    ? "novo-canal"
+                    : channelType === "GUILD_ANNOUNCEMENT"
+                      ? "avisos"
+                      : "Sala de voz"
                 }
                 maxLength={100}
                 autoFocus
@@ -2030,6 +2118,19 @@ export default function ChannelsSidebar({
         isOpen={isSettingsModalOpen}
         onClose={() => setIsSettingsModalOpen(false)}
         guild={guild}
+      />
+
+      <ConfirmModal
+        isOpen={leaveGuildConfirmOpen}
+        title={`Sair de ${guild?.name ?? "servidor"}?`}
+        description="Você deixará de ver os canais e precisará de outro convite para voltar."
+        confirmLabel="Sair"
+        danger
+        loading={isLeavingGuild}
+        onClose={() => {
+          if (!isLeavingGuild) setLeaveGuildConfirmOpen(false);
+        }}
+        onConfirm={() => void handleLeaveGuild()}
       />
     </>
   );

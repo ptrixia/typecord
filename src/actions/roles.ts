@@ -1,6 +1,7 @@
 "use server";
 import { db } from '@/lib/db';
 import { getCurrentUser } from '@/lib/current-user';
+import { dispatchGuildEvent } from '@/lib/gateway/guild-events';
 import { revalidatePath } from 'next/cache';
 import { Permissions, hasPermission, normalizePermissions } from '@/lib/permissions';
 import { requireRoleManagement } from '@/lib/permissions.server';
@@ -15,7 +16,9 @@ export async function createRole(guildId:string, values?:{name?:string;color?:st
   const max=await db.role.aggregate({where:{guildId},_max:{position:true}});
   const role=await db.role.create({data:{guildId,name:cleanName(values?.name||'Novo Cargo'),color:validColor(values?.color||'')?values!.color!:'#99aab5',hoist:Boolean(values?.hoist),mentionable:Boolean(values?.mentionable),position:(max._max.position??0)+1,permissions:bits.toString()}});
   await db.auditLog.create({data:{guildId,actorId:user.id,action:'ROLE_CREATE',targetId:role.id,metadata:{name:role.name}}});
-  revalidatePath(`/channels/${guildId}`); return role;
+  revalidatePath(`/channels/${guildId}`);
+  await dispatchGuildEvent(guildId, "GUILD_ROLE_CREATE", { role });
+  return role;
 }
 export async function updateRole(roleId: string, values: { name?: string; color?: string; hoist?: boolean; mentionable?: boolean; permissions?: string; position?: number }) {
   const role = await db.role.findUnique({
@@ -60,6 +63,7 @@ export async function updateRole(roleId: string, values: { name?: string; color?
   const updated = await db.role.update({ where: { id: roleId }, data }); 
   await db.auditLog.create({ data: { guildId: role.guildId, actorId: user.id, action: 'ROLE_UPDATE', targetId: roleId, metadata: { changes: data } } }); 
   revalidatePath(`/channels/${role.guildId}`); 
+  await dispatchGuildEvent(role.guildId, "GUILD_ROLE_UPDATE", { role: updated });
   return updated;
 }
-export async function deleteRole(roleId:string){const role=await db.role.findUnique({where:{id:roleId},select:{id:true,guildId:true,isDefault:true,managed:true}});if(!role)throw new Error('Cargo não encontrado.');if(role.isDefault||role.managed)throw new Error('Este cargo não pode ser excluído.');const user=await getCurrentUser();if(!user)throw new Error('Não autorizado');await requireRoleManagement(role.guildId,roleId);await db.role.delete({where:{id:roleId}});await db.auditLog.create({data:{guildId:role.guildId,actorId:user.id,action:'ROLE_DELETE',targetId:roleId}});revalidatePath(`/channels/${role.guildId}`);return true;}
+export async function deleteRole(roleId:string){const role=await db.role.findUnique({where:{id:roleId},select:{id:true,guildId:true,isDefault:true,managed:true}});if(!role)throw new Error('Cargo não encontrado.');if(role.isDefault||role.managed)throw new Error('Este cargo não pode ser excluído.');const user=await getCurrentUser();if(!user)throw new Error('Não autorizado');await requireRoleManagement(role.guildId,roleId);await db.role.delete({where:{id:roleId}});await db.auditLog.create({data:{guildId:role.guildId,actorId:user.id,action:'ROLE_DELETE',targetId:roleId}});revalidatePath(`/channels/${role.guildId}`);await dispatchGuildEvent(role.guildId,"GUILD_ROLE_DELETE",{roleId});return true;}

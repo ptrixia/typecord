@@ -1,148 +1,109 @@
 import { NextResponse } from "next/server";
-import { storage } from "@/lib/storage";
-import { GetObjectCommand } from "@aws-sdk/client-s3";
 
-const bucket = process.env.S3_BUCKET;
+import { getCurrentUser } from "@/lib/current-user";
+import { getObject, isSafeStorageKey } from "@/lib/storage";
+import { canUserReadStorageKey } from "@/lib/storage-access";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const INLINE_MIME_PREFIXES = ["image/", "video/", "audio/"];
+const NEVER_INLINE = new Set([
+  "image/svg+xml",
+  "text/html",
+  "application/xhtml+xml",
+  "application/xml",
+  "text/xml",
+  "application/javascript",
+  "text/javascript",
+]);
+
+function safeFilename(key: string) {
+  return (key.split("/").pop() || "arquivo")
+    .replace(/[\r\n"\\]/g, "_")
+    .slice(0, 180);
+}
+
+function errorName(error: unknown) {
+  return typeof error === "object" && error !== null && "name" in error
+    ? String((error as { name?: unknown }).name ?? "")
+    : "";
+}
 
 export async function GET(request: Request) {
-    try {
-        if (!bucket) {
-            console.error("[API_FILES_GET] S3_BUCKET não configurado.");
+  try {
+    const user = await getCurrentUser();
 
-            return new NextResponse(
-                "Bucket S3 não configurado.",
-                { status: 500 }
-            );
-        }
-
-        const { searchParams } = new URL(request.url);
-        const key = searchParams.get("key");
-
-        if (!key) {
-            return new NextResponse(
-                "Chave do arquivo ausente.",
-                { status: 400 }
-            );
-        }
-
-        console.log("[API_FILES_GET] Buscando arquivo:", key);
-
-        const command = new GetObjectCommand({
-            Bucket: bucket,
-            Key: key,
-        });
-
-        const response = await storage.send(command);
-
-        if (!response.Body) {
-            console.error(
-                "[API_FILES_GET] Arquivo não possui Body:",
-                key
-            );
-
-            return new NextResponse(
-                "Arquivo não encontrado.",
-                { status: 404 }
-            );
-        }
-
-        /*
-         * O SDK da AWS pode retornar diferentes tipos de Body
-         * dependendo do ambiente.
-         *
-         * No Node.js, transformToWebStream() transforma o Body
-         * em uma ReadableStream compatível com NextResponse.
-         */
-        const body = response.Body.transformToWebStream();
-
-        const contentType =
-            response.ContentType ||
-            "application/octet-stream";
-
-        const headers = new Headers();
-
-        headers.set(
-            "Content-Type",
-            contentType
-        );
-
-        /*
-         * Se o S3 souber o tamanho do arquivo,
-         * enviamos também para o navegador.
-         */
-        if (
-            typeof response.ContentLength === "number"
-        ) {
-            headers.set(
-                "Content-Length",
-                response.ContentLength.toString()
-            );
-        }
-
-        /*
-         * Permite que imagens, vídeos etc. sejam
-         * carregados pelo navegador.
-         */
-        headers.set(
-            "Cache-Control",
-            "public, max-age=31536000, immutable"
-        );
-
-        /*
-         * Permite que o navegador faça Range Requests.
-         *
-         * Isso é especialmente importante para vídeos.
-         */
-        headers.set(
-            "Accept-Ranges",
-            "bytes"
-        );
-
-        /*
-         * Content-Disposition inline permite que o navegador
-         * visualize imagens, PDFs e vídeos em vez de forçar
-         * download.
-         */
-        headers.set(
-            "Content-Disposition",
-            `inline; filename*=UTF-8''${encodeURIComponent(
-                key.split("/").pop() || "arquivo"
-            )}`
-        );
-
-        return new NextResponse(
-            body,
-            {
-                status: 200,
-                headers,
-            }
-        );
-    } catch (error: any) {
-        console.error(
-            "[API_FILES_GET] Erro ao carregar arquivo:",
-            {
-                message: error?.message,
-                name: error?.name,
-                code: error?.code,
-            }
-        );
-
-        /*
-         * Arquivo inexistente no S3
-         */
-        if (
-            error?.name === "NoSuchKey" ||
-            error?.code === "NoSuchKey"
-        ) {
-            return new NextResponse(
-                "Arquivo não encontrado.",
-                { status: 404 }
-            );
-        }
-
-        return new NextResponse(
-            "Erro ao carregar arquivo.",
-            { status: 500 }
-        );
+    if (!user) {
+      return NextResponse.json(
+        { success: false, message: "Não autorizado." },
+        { status: 401 },
+      );
     }
+
+    const key = new URL(request.url).searchParams.get("key")?.trim() ?? "";
+
+    if (!isSafeStorageKey(key)) {
+      return NextResponse.json(
+        { success: false, message: "Chave de arquivo inválida." },
+        { status: 400 },
+      );
+    }
+
+    if (!(await canUserReadStorageKey(user.id, key))) {
+      return NextResponse.json(
+        { success: false, message: "Você não possui acesso a este arquivo." },
+        { status: 403 },
+      );
+    }
+
+    const object = await getObject(key);
+
+    if (!object.Body) {
+      return NextResponse.json(
+        { success: false, message: "Arquivo não encontrado." },
+        { status: 404 },
+      );
+    }
+
+    const contentType = (object.ContentType || "application/octet-stream")
+      .toLowerCase()
+      .split(";", 1)[0]
+      .trim();
+    const canInline =
+      !NEVER_INLINE.has(contentType) &&
+      INLINE_MIME_PREFIXES.some((prefix) => contentType.startsWith(prefix));
+
+    const headers = new Headers({
+      "Content-Type": contentType,
+      "Content-Disposition": `${canInline ? "inline" : "attachment"}; filename="${safeFilename(key)}"`,
+      "Cache-Control": "private, max-age=300, must-revalidate",
+      "X-Content-Type-Options": "nosniff",
+      "Content-Security-Policy": "default-src 'none'; sandbox",
+      "Cross-Origin-Resource-Policy": "same-origin",
+    });
+
+    if (typeof object.ContentLength === "number") {
+      headers.set("Content-Length", String(object.ContentLength));
+    }
+
+    const body = object.Body.transformToWebStream();
+    return new NextResponse(body, { status: 200, headers });
+  } catch (error) {
+    const name = errorName(error);
+
+    if (name === "NoSuchKey" || name === "NotFound") {
+      return NextResponse.json(
+        { success: false, message: "Arquivo não encontrado." },
+        { status: 404 },
+      );
+    }
+
+    console.error("[API_FILES_GET]", error);
+
+    return NextResponse.json(
+      { success: false, message: "Não foi possível carregar o arquivo." },
+      { status: 500 },
+    );
+  }
 }

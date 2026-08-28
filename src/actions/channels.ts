@@ -3,15 +3,16 @@
 import { revalidatePath } from "next/cache";
 
 import { db } from "@/lib/db";
+import { dispatchGuildEvent } from "@/lib/gateway/guild-events";
 import { Permissions } from "@/lib/permissions";
 import { requirePermission } from "@/lib/permissions.server";
 
-type CreatableChannelType = "GUILD_TEXT" | "GUILD_VOICE";
+type CreatableChannelType = "GUILD_TEXT" | "GUILD_VOICE" | "GUILD_VIDEO" | "GUILD_ANNOUNCEMENT";
 
 function normalizeChannelName(name: string, type: CreatableChannelType) {
   const normalized = name.trim().replace(/\s+/g, " ").slice(0, 100);
 
-  if (type === "GUILD_VOICE") {
+  if (type === "GUILD_VOICE" || type === "GUILD_VIDEO") {
     return normalized;
   }
 
@@ -82,5 +83,9 @@ export async function createChannel(
   });
 
   revalidatePath(`/channels/${guildId}`);
+  await dispatchGuildEvent(guildId, "CHANNEL_CREATE", {
+    channel,
+  });
+
   return channel;
 }

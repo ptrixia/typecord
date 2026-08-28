@@ -11,7 +11,8 @@ export type GatewayEvent =
   | "CHANNEL_DELETE"
   | "GUILD_MEMBER_ADD"
   | "GUILD_MEMBER_REMOVE"
-  | "VOICE_STATE_UPDATE";
+  | "VOICE_STATE_UPDATE"
+  | "SOUNDBOARD_PLAY";
 
 export interface GatewaySession {
   id: string;

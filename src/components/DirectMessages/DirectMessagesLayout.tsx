@@ -2,8 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Loader2, MessageCircle } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 import Modal from "@/components/Modal";
+import { useActivity } from "@/components/app/ActivityProvider";
+import { useToast } from "@/components/app/ToastProvider";
+import type { CommandItem } from "@/components/SearchCommand";
+import { updateUserProfile } from "@/actions/user";
 import type {
   DirectConversationSummary,
   DirectMessagesBootstrap,
@@ -18,11 +23,20 @@ import FriendsPanel from "./FriendsPanel";
 import NewConversationModal from "./NewConversationModal";
 import UserProfileModal from "./UserProfileModal";
 
-export default function DirectMessagesLayout() {
+export default function DirectMessagesLayout({
+  initialConversationId,
+}: {
+  initialConversationId?: string | null;
+}) {
+  const router = useRouter();
+  const { setActiveLocation, setCurrentUserId } = useActivity();
+  const { pushToast } = useToast();
   const [isMounted, setIsMounted] = useState(false);
   const [data, setData] = useState<DirectMessagesBootstrap | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [friendsSelected, setFriendsSelected] = useState(true);
+  const [selectedId, setSelectedId] = useState<string | null>(
+    initialConversationId ?? null,
+  );
+  const [friendsSelected, setFriendsSelected] = useState(!initialConversationId);
   const [loading, setLoading] = useState(true);
   const [fatalError, setFatalError] = useState("");
 
@@ -67,6 +81,19 @@ export default function DirectMessagesLayout() {
           if (!stillExists) {
             setSelectedId(null);
             setFriendsSelected(true);
+          } else {
+            setFriendsSelected(false);
+          }
+        } else {
+          const restoredId = window.localStorage.getItem("typecord:last-dm");
+          const restoredStillExists =
+            restoredId &&
+            nextData.conversations.some((conversation) => conversation.id === restoredId);
+
+          if (restoredStillExists) {
+            setSelectedId(restoredId);
+            setFriendsSelected(false);
+            router.replace(`/channels/@me/${restoredId}`);
           }
         }
       } catch (error) {
@@ -79,7 +106,7 @@ export default function DirectMessagesLayout() {
         setLoading(false);
       }
     },
-    [selectedId],
+    [router, selectedId],
   );
 
   useEffect(() => {
@@ -111,9 +138,75 @@ export default function DirectMessagesLayout() {
         ) ?? null
       : null;
 
+  const commandItems = useMemo<CommandItem[]>(() => {
+    const conversationItems =
+      data?.conversations.map((conversation) => ({
+        id: `dm:${conversation.id}`,
+        label: conversation.displayName,
+        description: conversation.type === "GROUP" ? "Grupo de DM" : "Mensagem direta",
+        href: `/channels/@me/${conversation.id}`,
+        keywords: ["dm", "mensagem direta", conversation.type],
+      })) ?? [];
+
+    const statusItems: CommandItem[] = [
+      ["ONLINE", "Online"],
+      ["IDLE", "Ausente"],
+      ["DND", "Não perturbe"],
+      ["OFFLINE", "Invisível"],
+    ].map(([status, label]) => ({
+      id: `status:${status}`,
+      label: `Trocar status: ${label}`,
+      description: "Atualiza sua presença",
+      keywords: ["status", "presença"],
+      action: async () => {
+        try {
+          await updateUserProfile({ status: status as any });
+          pushToast({ type: "success", title: `Status alterado para ${label}.` });
+          await loadBootstrap(selectedId);
+        } catch (error) {
+          pushToast({
+            type: "error",
+            title: "Não foi possível trocar o status",
+            description: error instanceof Error ? error.message : "Tente novamente.",
+          });
+        }
+      },
+    }));
+
+    return [
+      {
+        id: "friends",
+        label: "Abrir amigos",
+        description: "Solicitações e lista de amigos",
+        href: "/channels/@me",
+        keywords: ["amigos", "friends"],
+      },
+      ...conversationItems,
+      ...statusItems,
+    ];
+  }, [data?.conversations, loadBootstrap, pushToast, selectedId]);
+
   async function refresh() {
     await loadBootstrap(selectedId);
   }
+
+  useEffect(() => {
+    if (data?.currentUser?.id) {
+      setCurrentUserId(data.currentUser.id);
+    }
+  }, [data?.currentUser?.id, setCurrentUserId]);
+
+  useEffect(() => {
+    setActiveLocation({
+      type: "direct",
+      conversationId: friendsSelected ? null : selectedId,
+    });
+  }, [friendsSelected, selectedId, setActiveLocation]);
+
+  useEffect(() => {
+    if (!selectedId || friendsSelected) return;
+    window.localStorage.setItem("typecord:last-dm", selectedId);
+  }, [friendsSelected, selectedId]);
 
   async function startDm(userId: string) {
     const response = await fetch("/api/direct-messages/conversations", {
@@ -139,6 +232,7 @@ export default function DirectMessagesLayout() {
     setSelectedId(conversation.id);
     setFriendsSelected(false);
     setProfileUser(null);
+    router.push(`/channels/@me/${conversation.id}`);
     await loadBootstrap(conversation.id);
   }
 
@@ -147,6 +241,7 @@ export default function DirectMessagesLayout() {
   ) {
     setSelectedId(conversation.id);
     setFriendsSelected(false);
+    router.push(`/channels/@me/${conversation.id}`);
     await loadBootstrap(conversation.id);
   }
 
@@ -243,15 +338,16 @@ export default function DirectMessagesLayout() {
           onSelect={(id) => {
             setSelectedId(id);
             setFriendsSelected(false);
+            router.push(`/channels/@me/${id}`);
           }}
           onFriends={() => {
             setSelectedId(null);
             setFriendsSelected(true);
+            router.push("/channels/@me");
           }}
           onNewMessage={() => setNewMessageOpen(true)}
           onCreateGroup={() => setCreateGroupOpen(true)}
           onAddFriend={() => setAddFriendOpen(true)}
-          onOpenProfile={setProfileUser}
           onCloseConversation={(conversation) => {
             if (conversation.type === "DM") {
               setCloseConversation(conversation);
@@ -276,6 +372,7 @@ export default function DirectMessagesLayout() {
               onOpenProfile={setProfileUser}
               onChanged={refresh}
               onConversationRemoved={handleConversationRemoved}
+              commandItems={commandItems}
             />
             <DirectMessageMembers
               conversation={selectedConversation}

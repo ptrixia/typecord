@@ -146,3 +146,36 @@
   background-size: 36px 36px;
   mask-image: linear-gradient(to bottom, black, transparent 80%);
 }
+
+html[data-typecord-reduce-motion="true"] *,
+html[data-typecord-reduce-motion="true"] *::before,
+html[data-typecord-reduce-motion="true"] *::after {
+  animation-duration: 1ms !important;
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
+  transition-duration: 1ms !important;
+}
+
+html[data-typecord-density="compact"] .typecord-message-item {
+  padding-block: 0.25rem;
+}
+
+html[data-typecord-density="compact"] .typecord-chat-list {
+  padding-block: 0.5rem;
+}
+
+html[data-typecord-density="compact"] .typecord-chat-list > div {
+  gap: 0.35rem;
+}
+
+html[data-typecord-density="compact"] .typecord-composer {
+  padding-block: 0.35rem;
+}
+
+html[data-typecord-compact-members="true"] .typecord-members-sidebar {
+  width: 12.5rem;
+}
+
+html[data-typecord-compact-members="true"] .typecord-member-row {
+  padding-block: 0.25rem;
+}

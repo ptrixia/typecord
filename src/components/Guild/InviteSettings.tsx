@@ -18,6 +18,8 @@ import {
   deleteGuildInvite,
   getGuildInvites,
 } from "@/actions/invites";
+import ConfirmModal from "@/components/ConfirmModal";
+import { useToast } from "@/components/app/ToastProvider";
 
 type Invite = {
   id: string;
@@ -43,10 +45,14 @@ export default function InvitesSettings({
   const [invites, setInvites] = useState<Invite[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [inviteToDelete, setInviteToDelete] = useState<Invite | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const { pushToast } = useToast();
 
   const [expires, setExpires] = useState("0");
   const [maxUses, setMaxUses] = useState("0");
+  const [now, setNow] = useState(() => Date.now());
 
   async function load() {
     try {
@@ -56,7 +62,11 @@ export default function InvitesSettings({
 
       setInvites(result as Invite[]);
     } catch (error: any) {
-      alert(error.message || "Não foi possível carregar os convites.");
+      pushToast({
+        type: "error",
+        title: "Convites não carregados",
+        description: error.message || "Não foi possível carregar os convites.",
+      });
     } finally {
       setLoading(false);
     }
@@ -65,6 +75,14 @@ export default function InvitesSettings({
   useEffect(() => {
     load();
   }, [guild.id]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setNow(Date.now());
+    }, 30_000);
+
+    return () => window.clearInterval(interval);
+  }, []);
 
   async function createInvite() {
     try {
@@ -80,34 +98,44 @@ export default function InvitesSettings({
       setExpires("0");
       setMaxUses("0");
     } catch (error: any) {
-      alert(error.message || "Não foi possível criar o convite.");
+      pushToast({
+        type: "error",
+        title: "Convite não criado",
+        description: error.message || "Não foi possível criar o convite.",
+      });
     } finally {
       setCreating(false);
     }
   }
 
   async function removeInvite(invite: Invite) {
-    if (
-      !confirm(
-        `Revogar o convite ${invite.code}?`
-      )
-    ) {
-      return;
-    }
+    setInviteToDelete(invite);
+  }
+
+  async function confirmRemoveInvite() {
+    if (!inviteToDelete) return;
 
     try {
+      setDeletingId(inviteToDelete.id);
       await deleteGuildInvite(
         guild.id,
-        invite.id
+        inviteToDelete.id
       );
 
       setInvites((current) =>
         current.filter(
-          (item) => item.id !== invite.id
+          (item) => item.id !== inviteToDelete.id
         )
       );
+      setInviteToDelete(null);
     } catch (error: any) {
-      alert(error.message || "Não foi possível revogar o convite.");
+      pushToast({
+        type: "error",
+        title: "Convite não revogado",
+        description: error.message || "Não foi possível revogar o convite.",
+      });
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -130,7 +158,7 @@ export default function InvitesSettings({
 
     const expiration = new Date(date);
 
-    if (expiration.getTime() <= Date.now()) {
+    if (expiration.getTime() <= now) {
       return "Expirado";
     }
 
@@ -143,7 +171,7 @@ export default function InvitesSettings({
   function isExpired(invite: Invite) {
     return (
       invite.expiresAt !== null &&
-      new Date(invite.expiresAt).getTime() <= Date.now()
+      new Date(invite.expiresAt).getTime() <= now
     );
   }
 
@@ -433,6 +461,22 @@ export default function InvitesSettings({
           )}
         </div>
       </div>
+      <ConfirmModal
+        isOpen={Boolean(inviteToDelete)}
+        title="Revogar convite?"
+        description={
+          inviteToDelete
+            ? `O convite ${inviteToDelete.code} deixará de funcionar imediatamente.`
+            : "Este convite deixará de funcionar imediatamente."
+        }
+        confirmLabel="Revogar"
+        danger
+        loading={Boolean(deletingId)}
+        onClose={() => {
+          if (!deletingId) setInviteToDelete(null);
+        }}
+        onConfirm={() => void confirmRemoveInvite()}
+      />
     </section>
   );
 }

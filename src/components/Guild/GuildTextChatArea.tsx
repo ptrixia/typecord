@@ -8,6 +8,7 @@ export default function GuildTextChatArea({
   currentUser,
   users,
   channels,
+  commandItems,
 }: ChatAreaProps) {
   return (
     <TextChatArea
@@ -16,6 +17,7 @@ export default function GuildTextChatArea({
       users={users}
       channels={channels}
       mode="guild"
+      commandItems={commandItems}
     />
   );
 }

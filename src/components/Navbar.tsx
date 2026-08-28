@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { X, Square, Minus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { InboxButton } from "@/components/app/ActivityProvider";
+import { PreferencesButton } from "@/components/app/PreferencesProvider";
 
 export default function Navbar() {
   const [isDesktop, setIsDesktop] = useState(false);
@@ -53,6 +55,8 @@ export default function Navbar() {
 
       {/* data-tauri-no-drag impede que o arrastar da janela interfira nos cliques dos botões */}
       <div data-tauri-no-drag className="flex h-full items-center gap-1 px-2">
+        <InboxButton />
+        <PreferencesButton />
         <ThemeToggle />
 
         {isDesktop && (

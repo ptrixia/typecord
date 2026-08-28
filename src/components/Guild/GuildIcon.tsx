@@ -7,6 +7,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useActivity } from "@/components/app/ActivityProvider";
 
 interface Guild {
   id: string | number;
@@ -35,6 +36,7 @@ function resolveFileUrl(urlOrKey?: string | null) {
 
 export default function GuildIcon({ guild }: GuildIconProps) {
   const params = useParams();
+  const { getGuildUnread } = useActivity();
   const firstLetter = guild.name?.charAt(0).toUpperCase() || "?";
 
   const isActive =
@@ -42,7 +44,7 @@ export default function GuildIcon({ guild }: GuildIconProps) {
     params?.guildId === guild.id.toString();
 
   const resolvedIconUrl = resolveFileUrl(guild.iconUrl);
-  const resolvedBannerUrl = resolveFileUrl(guild.bannerUrl);
+  const unreadCount = getGuildUnread(String(guild.id));
 
   return (
     <div className="relative group flex items-center justify-center w-full py-1">
@@ -60,7 +62,7 @@ export default function GuildIcon({ guild }: GuildIconProps) {
         <TooltipTrigger>
           <Link
             href={`/channels/${guild.id}`}
-            className={`flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden transition-all duration-200 ${
+            className={`relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden transition-all duration-200 ${
               isActive
                 ? "rounded-2xl bg-indigo-500 text-white dark:bg-indigo-500"
                 : "rounded-full bg-zinc-300 text-zinc-800 hover:rounded-2xl hover:bg-indigo-500 hover:text-white dark:bg-neutral-900 dark:text-zinc-200"
@@ -75,6 +77,11 @@ export default function GuildIcon({ guild }: GuildIconProps) {
             ) : (
               <span className="select-none text-lg font-bold">
                 {firstLetter}
+              </span>
+            )}
+            {unreadCount > 0 && (
+              <span className="absolute -right-0.5 -top-0.5 z-10 inline-flex min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-black leading-5 text-white ring-2 ring-white dark:ring-black">
+                {unreadCount > 99 ? "99+" : unreadCount}
               </span>
             )}
           </Link>

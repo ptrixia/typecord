@@ -1,9 +1,5 @@
-// ROTA: /api/direct-messages/conversations/[conversationId]/messages
-// MÉTODOS: GET, POST
-// GET: Lista as mensagens da conversa com paginação.
-// POST: Envia uma nova mensagem, resposta e/ou anexos para a conversa.
-
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/current-user";
@@ -13,24 +9,69 @@ import {
   isBlocked,
   serializeDirectMessage,
 } from "@/lib/direct-messages.server";
+import { emitToUser } from "@/lib/realtime/emitter";
+import { enforceRateLimit, isSameOriginRequest, sameOriginError } from "@/lib/request-security";
+import { isOwnedUploadKey } from "@/lib/storage-access";
+import { storageObjectExists } from "@/lib/storage";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 type RouteContext = {
-  params: Promise<{
-    conversationId: string;
-  }>;
+  params: Promise<{ conversationId: string }>;
 };
 
-type IncomingAttachment = {
-  url?: unknown;
-  filename?: unknown;
-  fileSize?: unknown;
-  fileType?: unknown;
-};
+const attachmentSchema = z.object({
+  url: z.string().min(1).max(2048),
+  filename: z.string().trim().min(1).max(255),
+  fileSize: z.number().int().min(0).max(25 * 1024 * 1024),
+  fileType: z.string().trim().min(1).max(150),
+});
 
-export async function GET(
-  request: NextRequest,
-  context: RouteContext,
+const createMessageSchema = z.object({
+  content: z.string().max(8000).default(""),
+  replyToId: z.string().trim().min(1).max(128).nullable().optional(),
+  attachments: z.array(attachmentSchema).max(10).default([]),
+});
+
+function extractStorageKey(value: string) {
+  if (value.startsWith("attachments/")) {
+    return value;
+  }
+
+  try {
+    const url = new URL(value, "https://typecord.local");
+    if (url.pathname === "/api/files") {
+      return url.searchParams.get("key") ?? "";
+    }
+  } catch {
+    return "";
+  }
+
+  return "";
+}
+
+async function notifyParticipants(
+  conversationId: string,
+  type: "MESSAGE_CREATE" | "MESSAGE_UPDATE" | "MESSAGE_DELETE",
+  data: Record<string, unknown>,
 ) {
+  const participants = await db.directConversationParticipant.findMany({
+    where: { conversationId },
+    select: { userId: true },
+  });
+
+  await Promise.allSettled(
+    participants.map((participant) =>
+      emitToUser(participant.userId, type, {
+        conversationId,
+        ...data,
+      }),
+    ),
+  );
+}
+
+export async function GET(request: NextRequest, context: RouteContext) {
   try {
     const currentUser = await getCurrentUser();
 
@@ -41,29 +82,39 @@ export async function GET(
       );
     }
 
+    const limited = await enforceRateLimit(
+      request,
+      "dm-read",
+      180,
+      60,
+      currentUser.id,
+    );
+    if (limited) return limited;
+
     const { conversationId } = await context.params;
     await assertConversationMember(conversationId, currentUser.id);
 
-    const before = request.nextUrl.searchParams.get("before");
-    const take = Math.min(
-      Math.max(Number(request.nextUrl.searchParams.get("limit") ?? 50), 1),
-      100,
-    );
+    const beforeRaw = request.nextUrl.searchParams.get("before");
+    const before = beforeRaw ? new Date(beforeRaw) : null;
+
+    if (before && Number.isNaN(before.getTime())) {
+      return NextResponse.json(
+        { success: false, message: "Cursor de data inválido." },
+        { status: 400 },
+      );
+    }
+
+    const parsedLimit = Number(request.nextUrl.searchParams.get("limit") ?? 50);
+    const take = Number.isFinite(parsedLimit)
+      ? Math.min(Math.max(Math.trunc(parsedLimit), 1), 100)
+      : 50;
 
     const messages = await db.directMessage.findMany({
       where: {
         conversationId,
-        ...(before
-          ? {
-              createdAt: {
-                lt: new Date(before),
-              },
-            }
-          : {}),
+        ...(before ? { createdAt: { lt: before } } : {}),
       },
-      orderBy: {
-        createdAt: "desc",
-      },
+      orderBy: { createdAt: "desc" },
       take,
       include: directMessageInclude,
     });
@@ -81,18 +132,17 @@ export async function GET(
       },
     });
 
-    return NextResponse.json({
-      success: true,
-      messages: messages
-        .reverse()
-        .map((message) =>
-          serializeDirectMessage(message, currentUser.id),
-        ),
-      hasMore: messages.length === take,
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        messages: messages
+          .reverse()
+          .map((message) => serializeDirectMessage(message, currentUser.id)),
+        hasMore: messages.length === take,
+      },
+      { headers: { "Cache-Control": "private, no-store" } },
+    );
   } catch (error) {
-    console.error("[DIRECT_MESSAGES_GET]", error);
-
     if (error instanceof Error && error.message === "FORBIDDEN") {
       return NextResponse.json(
         { success: false, message: "Sem acesso a esta conversa." },
@@ -100,6 +150,7 @@ export async function GET(
       );
     }
 
+    console.error("[DIRECT_MESSAGES_GET]", error);
     return NextResponse.json(
       { success: false, message: "Não foi possível carregar as mensagens." },
       { status: 500 },
@@ -107,11 +158,12 @@ export async function GET(
   }
 }
 
-export async function POST(
-  request: NextRequest,
-  context: RouteContext,
-) {
+export async function POST(request: NextRequest, context: RouteContext) {
   try {
+    if (!isSameOriginRequest(request)) {
+      return sameOriginError();
+    }
+
     const currentUser = await getCurrentUser();
 
     if (!currentUser) {
@@ -121,6 +173,15 @@ export async function POST(
       );
     }
 
+    const limited = await enforceRateLimit(
+      request,
+      "dm-send",
+      60,
+      60,
+      currentUser.id,
+    );
+    if (limited) return limited;
+
     const { conversationId } = await context.params;
     await assertConversationMember(conversationId, currentUser.id);
 
@@ -128,9 +189,7 @@ export async function POST(
       where: { id: conversationId },
       select: {
         type: true,
-        participants: {
-          select: { userId: true },
-        },
+        participants: { select: { userId: true } },
       },
     });
 
@@ -146,83 +205,69 @@ export async function POST(
         (participant) => participant.userId !== currentUser.id,
       )?.userId;
 
-      if (
-        otherUserId &&
-        (await isBlocked(currentUser.id, otherUserId))
-      ) {
+      if (otherUserId && (await isBlocked(currentUser.id, otherUserId))) {
         return NextResponse.json(
-          {
-            success: false,
-            message: "Não é possível enviar mensagens nesta conversa.",
-          },
+          { success: false, message: "Não é possível enviar mensagens nesta conversa." },
           { status: 403 },
         );
       }
     }
 
-    const body = (await request.json()) as {
-      content?: unknown;
-      replyToId?: unknown;
-      attachments?: IncomingAttachment[];
-    };
+    const parsed = createMessageSchema.safeParse(await request.json().catch(() => null));
 
-    const content =
-      typeof body.content === "string" ? body.content.trim() : "";
-
-    if (content.length > 8000) {
+    if (!parsed.success) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "A mensagem não pode passar de 8.000 caracteres.",
-        },
+        { success: false, message: parsed.error.issues[0]?.message ?? "Dados inválidos." },
         { status: 400 },
       );
     }
 
-    const attachments = Array.isArray(body.attachments)
-      ? body.attachments
-          .slice(0, 10)
-          .filter(
-            (attachment) =>
-              typeof attachment.url === "string" &&
-              typeof attachment.filename === "string" &&
-              typeof attachment.fileSize === "number" &&
-              Number.isFinite(attachment.fileSize) &&
-              attachment.fileSize >= 0 &&
-              typeof attachment.fileType === "string",
-          )
-          .map((attachment) => ({
-            url: String(attachment.url),
-            filename: String(attachment.filename).slice(0, 255),
-            fileSize: Math.trunc(Number(attachment.fileSize)),
-            fileType: String(attachment.fileType).slice(0, 150),
-          }))
-      : [];
+    const content = parsed.data.content.trim();
+    const attachments = [] as Array<{
+      url: string;
+      filename: string;
+      fileSize: number;
+      fileType: string;
+    }>;
+
+    for (const attachment of parsed.data.attachments) {
+      const key = extractStorageKey(attachment.url);
+
+      if (!key || !isOwnedUploadKey(currentUser.id, key)) {
+        return NextResponse.json(
+          { success: false, message: "Anexo inválido ou pertencente a outro usuário." },
+          { status: 400 },
+        );
+      }
+
+      if (!(await storageObjectExists(key))) {
+        return NextResponse.json(
+          { success: false, message: "Um dos anexos não existe mais." },
+          { status: 400 },
+        );
+      }
+
+      attachments.push({
+        url: `/api/files?key=${encodeURIComponent(key)}`,
+        filename: attachment.filename,
+        fileSize: attachment.fileSize,
+        fileType: attachment.fileType,
+      });
+    }
 
     if (!content && attachments.length === 0) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "Digite uma mensagem ou adicione um arquivo.",
-        },
+        { success: false, message: "Digite uma mensagem ou adicione um arquivo." },
         { status: 400 },
       );
     }
 
-    const replyToId =
-      typeof body.replyToId === "string" && body.replyToId.trim()
-        ? body.replyToId.trim()
-        : null;
+    const replyToId = parsed.data.replyToId ?? null;
 
     if (replyToId) {
       const replyMessage = await db.directMessage.findFirst({
-        where: {
-          id: replyToId,
-          conversationId,
-        },
-        select: {
-          id: true,
-        },
+        where: { id: replyToId, conversationId },
+        select: { id: true },
       });
 
       if (!replyMessage) {
@@ -240,44 +285,32 @@ export async function POST(
           authorId: currentUser.id,
           content,
           replyToId,
-          attachments: {
-            create: attachments,
-          },
+          attachments: { create: attachments },
         },
         include: directMessageInclude,
       });
 
       await tx.directConversation.update({
-        where: {
-          id: conversationId,
-        },
-        data: {
-          updatedAt: new Date(),
-        },
+        where: { id: conversationId },
+        data: { updatedAt: new Date() },
       });
 
       await tx.directConversationParticipant.updateMany({
-        where: {
-          conversationId,
-        },
-        data: {
-          isHidden: false,
-        },
+        where: { conversationId },
+        data: { isHidden: false },
       });
 
       return created;
     });
 
+    const serialized = serializeDirectMessage(message, currentUser.id);
+    await notifyParticipants(conversationId, "MESSAGE_CREATE", { message: serialized });
+
     return NextResponse.json(
-      {
-        success: true,
-        message: serializeDirectMessage(message, currentUser.id),
-      },
-      { status: 201 },
+      { success: true, message: serialized },
+      { status: 201, headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
-    console.error("[DIRECT_MESSAGES_POST]", error);
-
     if (error instanceof Error && error.message === "FORBIDDEN") {
       return NextResponse.json(
         { success: false, message: "Sem acesso a esta conversa." },
@@ -285,6 +318,7 @@ export async function POST(
       );
     }
 
+    console.error("[DIRECT_MESSAGES_POST]", error);
     return NextResponse.json(
       { success: false, message: "Não foi possível enviar a mensagem." },
       { status: 500 },

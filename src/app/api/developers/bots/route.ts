@@ -1,529 +1,258 @@
-import { NextResponse } from "next/server";
 import crypto from "node:crypto";
+import { NextResponse } from "next/server";
+import { z } from "zod";
 
+import { getEffectiveChannelPermissions } from "@/lib/channel-permissions";
 import { getCurrentUser } from "@/lib/current-user";
-import { db as prisma } from "@/lib/db";
-import {
-  Permissions,
-  hasPermission,
-} from "@/lib/permissions";
+import { db } from "@/lib/db";
+import { Permissions, hasPermission } from "@/lib/permissions";
+import { enforceRateLimit, isSameOriginRequest, sameOriginError } from "@/lib/request-security";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const optionalUrl = z
+  .union([z.string().trim().url().max(2048), z.literal(""), z.null()])
+  .optional()
+  .transform((value) => (typeof value === "string" && value.trim() ? value.trim() : null))
+  .refine((value) => {
+    if (!value) return true;
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  }, "A URL precisa usar HTTP ou HTTPS.");
+
+const createBotSchema = z.object({
+  username: z
+    .string()
+    .trim()
+    .min(2, "O nome precisa ter pelo menos 2 caracteres.")
+    .max(32, "O nome pode ter no máximo 32 caracteres.")
+    .regex(/^[\p{L}\p{N}_. -]+$/u, "O nome contém caracteres inválidos."),
+  avatarUrl: optionalUrl,
+  bannerUrl: optionalUrl,
+});
 
 function generateToken() {
   return `tc_bot_${crypto.randomBytes(48).toString("base64url")}`;
 }
 
 function hashToken(token: string) {
-  return crypto
-    .createHash("sha256")
-    .update(token)
-    .digest("hex");
+  return crypto.createHash("sha256").update(token).digest("hex");
 }
 
-function normalizeUrl(value: unknown): string | null {
-  if (
-    typeof value !== "string" ||
-    !value.trim()
-  ) {
-    return null;
-  }
-
-  const url = value.trim();
-
-  if (url.length > 2048) {
-    return null;
-  }
-
-  try {
-    const parsed = new URL(url);
-
-    if (
-      parsed.protocol !== "http:" &&
-      parsed.protocol !== "https:"
-    ) {
-      return null;
-    }
-
-    return url;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * GET
- *
- * Retorna:
- * - Bots pertencentes ao usuário autenticado
- * - Guilds onde o usuário pode instalar bots
- */
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const user = await getCurrentUser();
-    const ownerId = user?.id;
 
-    if (!ownerId) {
-      return NextResponse.json(
-        {
-          message: "Não autenticado.",
-        },
-        {
-          status: 401,
-        },
-      );
+    if (!user) {
+      return NextResponse.json({ message: "Não autenticado." }, { status: 401 });
     }
 
-    // --------------------------------------------------
-    // Bots criados pelo usuário
-    // --------------------------------------------------
-    //
-    // IMPORTANTE:
-    //
-    // userId = usuário especial que representa o bot
-    // ownerId = usuário humano que criou o bot
-    //
-    // Portanto, a busca precisa ser por ownerId.
-    //
-    const bots = await prisma.bot.findMany({
-      where: {
-        ownerId,
-      },
+    const limited = await enforceRateLimit(request, "developers-bots-read", 120, 60, user.id);
+    if (limited) return limited;
 
-      include: {
+    const bots = await db.bot.findMany({
+      where: { ownerId: user.id },
+      select: {
+        id: true,
+        userId: true,
+        ownerId: true,
+        disabled: true,
+        createdAt: true,
         user: {
           select: {
-            id: true,
             username: true,
             globalName: true,
             avatarUrl: true,
             bannerUrl: true,
           },
         },
+      },
+      orderBy: { createdAt: "desc" },
+    });
 
-        gatewaySessions: {
-          where: {
-            revokedAt: null,
-            expiresAt: {
-              gt: new Date(),
-            },
-          },
-
+    const memberships = await db.member.findMany({
+      where: { userId: user.id },
+      select: {
+        guildId: true,
+        guild: {
           select: {
             id: true,
+            name: true,
+            iconUrl: true,
+            ownerId: true,
           },
         },
-      },
-
-      orderBy: {
-        createdAt: "desc",
       },
     });
 
-    // --------------------------------------------------
-    // Guilds onde o usuário pode instalar bots
-    // --------------------------------------------------
+    const permissionResults = await Promise.all(
+      memberships.map(async (membership) => {
+        if (membership.guild.ownerId === user.id) return membership.guild;
 
-    const memberships =
-      await prisma.member.findMany({
-        where: {
-          userId: ownerId,
-        },
-
-        include: {
-          guild: {
-            select: {
-              id: true,
-              name: true,
-              iconUrl: true,
-              ownerId: true,
-            },
-          },
-
-          roles: {
-            select: {
-              id: true,
-              permissions: true,
-            },
-          },
-        },
-      });
-
-    const allowedGuilds = memberships
-      .filter((membership) => {
-        // Dono do servidor sempre pode instalar bots.
-        if (
-          membership.guild.ownerId ===
-          ownerId
-        ) {
-          return true;
-        }
-
-        let permissions = 0n;
-
-        for (const role of membership.roles) {
-          try {
-            permissions |= BigInt(
-              role.permissions ?? "0",
-            );
-          } catch {
-            // Ignora permissões inválidas.
-          }
-        }
-
-        // Pode instalar se tiver:
-        // ADMINISTRATOR
-        // ou MANAGE_GUILD
-        return (
-          hasPermission(
-            permissions,
-            Permissions.ADMINISTRATOR,
-          ) ||
-          hasPermission(
-            permissions,
-            Permissions.MANAGE_GUILD,
-          )
+        const permissions = await getEffectiveChannelPermissions(
+          membership.guildId,
+          user.id,
         );
-      })
-      .map((membership) => ({
-        id: membership.guild.id,
-        name: membership.guild.name,
-        iconUrl: membership.guild.iconUrl,
-      }));
 
-    // --------------------------------------------------
-    // Descobrir em quais guilds os bots estão
-    // --------------------------------------------------
+        if (
+          hasPermission(permissions, Permissions.ADMINISTRATOR) ||
+          hasPermission(permissions, Permissions.MANAGE_GUILD)
+        ) {
+          return membership.guild;
+        }
 
-    const botUserIds = bots.map(
-      (bot) => bot.userId,
+        return null;
+      }),
     );
 
-    const botMemberships =
-      botUserIds.length > 0
-        ? await prisma.member.findMany({
-            where: {
-              userId: {
-                in: botUserIds,
-              },
+    const allowedGuilds = permissionResults.flatMap((guild) =>
+      guild ? [{ id: guild.id, name: guild.name, iconUrl: guild.iconUrl }] : [],
+    );
+
+    const botUserIds = bots.map((bot) => bot.userId);
+    const botMemberships = botUserIds.length
+      ? await db.member.findMany({
+          where: { userId: { in: botUserIds } },
+          select: {
+            userId: true,
+            guild: {
+              select: { id: true, name: true, iconUrl: true },
             },
-
-            select: {
-              userId: true,
-
-              guild: {
-                select: {
-                  id: true,
-                  name: true,
-                  iconUrl: true,
-                },
-              },
-            },
-          })
-        : [];
-
-    // --------------------------------------------------
-    // Montar resposta
-    // --------------------------------------------------
-
-    const formattedBots = bots.map(
-      (bot) => {
-        const guilds =
-          botMemberships
-            .filter(
-              (membership) =>
-                membership.userId ===
-                bot.userId,
-            )
-            .map((membership) => ({
-              id: membership.guild.id,
-              name: membership.guild.name,
-              iconUrl:
-                membership.guild.iconUrl,
-            }));
-
-        return {
-          id: bot.id,
-
-          // ID do usuário especial do bot
-          userId: bot.userId,
-
-          // ID do usuário humano dono do bot
-          ownerId: bot.ownerId,
-
-          username:
-            bot.user.username,
-
-          globalName:
-            bot.user.globalName,
-
-          avatarUrl:
-            bot.user.avatarUrl,
-
-          bannerUrl:
-            bot.user.bannerUrl,
-
-          disabled:
-            bot.disabled,
-
-          createdAt:
-            bot.createdAt.toISOString(),
-
-          guilds,
-        };
-      },
-    );
-
-    return NextResponse.json({
-      bots: formattedBots,
-      guilds: allowedGuilds,
-    });
-  } catch (error) {
-    console.error(
-      "[DEVELOPERS_BOTS_GET]",
-      error,
-    );
+          },
+        })
+      : [];
 
     return NextResponse.json(
       {
-        message:
-          "Erro interno ao carregar os bots.",
+        bots: bots.map((bot) => ({
+          id: bot.id,
+          userId: bot.userId,
+          ownerId: bot.ownerId,
+          username: bot.user.username,
+          globalName: bot.user.globalName,
+          avatarUrl: bot.user.avatarUrl,
+          bannerUrl: bot.user.bannerUrl,
+          disabled: bot.disabled,
+          createdAt: bot.createdAt.toISOString(),
+          guilds: botMemberships
+            .filter((membership) => membership.userId === bot.userId)
+            .map((membership) => membership.guild),
+        })),
+        guilds: allowedGuilds,
       },
-      {
-        status: 500,
-      },
+      { headers: { "Cache-Control": "private, no-store" } },
+    );
+  } catch (error) {
+    console.error("[DEVELOPERS_BOTS_GET]", error);
+    return NextResponse.json(
+      { message: "Erro interno ao carregar os bots." },
+      { status: 500 },
     );
   }
 }
 
-/**
- * POST
- *
- * Cria um novo bot.
- */
-export async function POST(
-  request: Request,
-) {
+export async function POST(request: Request) {
   try {
+    if (!isSameOriginRequest(request)) return sameOriginError();
+
     const user = await getCurrentUser();
-    const ownerId = user?.id;
+    if (!user) {
+      return NextResponse.json({ message: "Não autenticado." }, { status: 401 });
+    }
 
-    if (!ownerId) {
+    const limited = await enforceRateLimit(request, "developers-bots-create", 10, 3600, user.id);
+    if (limited) return limited;
+
+    const parsed = createBotSchema.safeParse(await request.json().catch(() => null));
+    if (!parsed.success) {
       return NextResponse.json(
-        {
-          message: "Não autenticado.",
-        },
-        {
-          status: 401,
-        },
+        { message: parsed.error.issues[0]?.message ?? "Dados inválidos." },
+        { status: 400 },
       );
     }
 
-    const body =
-      await request.json();
-
-    // --------------------------------------------------
-    // Dados enviados pelo formulário
-    // --------------------------------------------------
-
-    const username =
-      String(
-        body.username ?? "",
-      ).trim();
-
-    const avatarUrl =
-      normalizeUrl(
-        body.avatarUrl,
-      );
-
-    const bannerUrl =
-      normalizeUrl(
-        body.bannerUrl,
-      );
-
-    // --------------------------------------------------
-    // Validação do username
-    // --------------------------------------------------
-
-    if (
-      username.length < 2 ||
-      username.length > 32
-    ) {
+    const total = await db.bot.count({ where: { ownerId: user.id } });
+    if (total >= 25) {
       return NextResponse.json(
-        {
-          message:
-            "O nome precisa ter entre 2 e 32 caracteres.",
-        },
-        {
-          status: 400,
-        },
+        { message: "Limite de 25 aplicações por conta atingido." },
+        { status: 409 },
       );
     }
 
-    // --------------------------------------------------
-    // Verificar username existente
-    // --------------------------------------------------
-
-    const existing =
-      await prisma.user.findUnique({
-        where: {
-          username,
-        },
-
-        select: {
-          id: true,
-        },
-      });
+    const existing = await db.user.findUnique({
+      where: { username: parsed.data.username },
+      select: { id: true },
+    });
 
     if (existing) {
       return NextResponse.json(
-        {
-          message:
-            "Este username já está sendo usado.",
-        },
-        {
-          status: 409,
-        },
+        { message: "Este nome de usuário já está sendo usado." },
+        { status: 409 },
       );
     }
 
-    // --------------------------------------------------
-    // Gerar token
-    // --------------------------------------------------
+    const token = generateToken();
+    const tokenHash = hashToken(token);
 
-    const token =
-      generateToken();
-
-    const tokenHash =
-      hashToken(token);
-
-    // --------------------------------------------------
-    // Criar usuário do bot + registro Bot
-    // --------------------------------------------------
-
-    const bot =
-      await prisma.$transaction(
-        async (tx) => {
-          /*
-           * Este User NÃO é o usuário humano.
-           *
-           * Ele representa o bot dentro do Typecord.
-           */
-          const botUser =
-            await tx.user.create({
-              data: {
-                email:
-                  `bot_${crypto.randomUUID()}@bots.typecord.internal`,
-
-                username,
-
-                globalName:
-                  username,
-
-                passwordHash: null,
-
-                status: "OFFLINE",
-
-                avatarUrl,
-
-                bannerUrl,
-              },
-            });
-
-          /*
-           * Registro do bot.
-           *
-           * userId:
-           *   ID do usuário especial do bot.
-           *
-           * ownerId:
-           *   ID do usuário humano que criou o bot.
-           */
-          return tx.bot.create({
-            data: {
-              userId:
-                botUser.id,
-
-              ownerId,
-
-              tokenHash,
-
-              disabled: false,
-            },
-
-            include: {
-              user: {
-                select: {
-                  id: true,
-                  username: true,
-                  globalName: true,
-                  avatarUrl: true,
-                  bannerUrl: true,
-                },
-              },
-            },
-          });
+    const bot = await db.$transaction(async (tx) => {
+      const botUser = await tx.user.create({
+        data: {
+          email: `bot_${crypto.randomUUID()}@bots.typecord.internal`,
+          username: parsed.data.username,
+          globalName: parsed.data.username,
+          passwordHash: null,
+          status: "OFFLINE",
+          avatarUrl: parsed.data.avatarUrl,
+          bannerUrl: parsed.data.bannerUrl,
         },
-      );
+      });
 
-    // --------------------------------------------------
-    // Resposta
-    // --------------------------------------------------
+      return tx.bot.create({
+        data: {
+          userId: botUser.id,
+          ownerId: user.id,
+          tokenHash,
+          disabled: false,
+        },
+        select: {
+          id: true,
+          ownerId: true,
+          disabled: true,
+          createdAt: true,
+          user: {
+            select: {
+              id: true,
+              username: true,
+              globalName: true,
+              avatarUrl: true,
+              bannerUrl: true,
+            },
+          },
+        },
+      });
+    });
 
     return NextResponse.json(
       {
         bot: {
           id: bot.id,
-
-          // ID do usuário especial do bot
           userId: bot.user.id,
-
-          // ID do usuário humano dono do bot
           ownerId: bot.ownerId,
-
-          username:
-            bot.user.username,
-
-          globalName:
-            bot.user.globalName,
-
-          avatarUrl:
-            bot.user.avatarUrl,
-
-          bannerUrl:
-            bot.user.bannerUrl,
-
-          disabled:
-            bot.disabled,
-
-          createdAt:
-            bot.createdAt.toISOString(),
-
+          username: bot.user.username,
+          globalName: bot.user.globalName,
+          avatarUrl: bot.user.avatarUrl,
+          bannerUrl: bot.user.bannerUrl,
+          disabled: bot.disabled,
+          createdAt: bot.createdAt.toISOString(),
           guilds: [],
         },
-
-        /*
-         * O token bruto só é enviado
-         * na criação.
-         */
         token,
       },
-      {
-        status: 201,
-      },
+      { status: 201, headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
-    console.error(
-      "[DEVELOPERS_BOTS_POST]",
-      error,
-    );
-
-    return NextResponse.json(
-      {
-        message:
-          "Erro ao criar bot.",
-      },
-      {
-        status: 500,
-      },
-    );
+    console.error("[DEVELOPERS_BOTS_POST]", error);
+    return NextResponse.json({ message: "Erro ao criar bot." }, { status: 500 });
   }
 }

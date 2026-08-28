@@ -218,22 +218,24 @@ export async function listConversations(userId: string) {
 }
 
 export function serializeDirectMessage(message: any, currentUserId: string) {
+  type ReactionGroup = {
+    emoji: string;
+    count: number;
+    reactedByMe: boolean;
+    users: Array<{
+      id: string;
+      username: string;
+      globalName: string | null;
+    }>;
+  };
+
   const grouped = new Map<
     string,
-    {
-      emoji: string;
-      count: number;
-      reactedByMe: boolean;
-      users: Array<{
-        id: string;
-        username: string;
-        globalName: string | null;
-      }>;
-    }
+    ReactionGroup
   >();
 
   for (const reaction of message.reactions ?? []) {
-    const current = grouped.get(reaction.emoji) ?? {
+    const current: ReactionGroup = grouped.get(reaction.emoji) ?? {
       emoji: reaction.emoji,
       count: 0,
       reactedByMe: false,

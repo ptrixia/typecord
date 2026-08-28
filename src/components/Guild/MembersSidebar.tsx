@@ -2,10 +2,8 @@
 
 import {
   Check,
-  CircleUserRound,
-  Copy,
-  MessageCircle,
-  MoreHorizontal,
+  Loader2,
+  Plus,
   X,
 } from "lucide-react";
 import {
@@ -16,27 +14,41 @@ import {
   useState,
 } from "react";
 import Avatar from "../Image/Avatar";
+import { resolveFileUrl } from "../Image/Avatar";
 import { onGatewayEvent } from "@/lib/realtime/gateway-client";
-import Banner from "../Image/Banner";
+import { toggleMemberRole } from "@/actions/members";
+import { useToast } from "@/components/app/ToastProvider";
+import {
+  Permissions,
+  hasPermission,
+  normalizePermissions,
+} from "@/lib/permissions";
 
 interface PopupPosition {
   top: number;
   left: number;
 }
 
-const POPUP_WIDTH = 340;
+const POPUP_WIDTH = 380;
 const POPUP_GAP = 12;
 const VIEWPORT_GAP = 8;
 
 export default function MembersSidebar({
   members,
   guildId,
+  roles = [],
+  currentMember,
 }: {
   members: any[];
   guildId?: string;
+  roles?: any[];
+  currentMember?: any;
 }) {
   const [liveMembers, setLiveMembers] = useState<any[]>(members ?? []);
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
+  const [roleMenuOpen, setRoleMenuOpen] = useState(false);
+  const [roleActionId, setRoleActionId] = useState<string | null>(null);
+  const { pushToast } = useToast();
 
   const [popupPosition, setPopupPosition] =
     useState<PopupPosition>({
@@ -150,11 +162,9 @@ export default function MembersSidebar({
 
           if (!userId) return;
 
-          const {
-            id: _id,
-            userId: _userId,
-            ...patch
-          } = data ?? {};
+          const patch = { ...(data ?? {}) };
+          delete patch.id;
+          delete patch.userId;
 
           patchUser(userId, patch);
         },
@@ -406,7 +416,7 @@ export default function MembersSidebar({
 
   const groupedMembers =
     useMemo(() => {
-      return Object.values(
+      return (Object.values(
         (
           liveMembers || []
         ).reduce<
@@ -461,7 +471,7 @@ export default function MembersSidebar({
           },
           {},
         ),
-      ).sort(
+      ) as Array<{ role: any; members: any[] }>).sort(
         (a, b) =>
           b.role.position -
           a.role.position,
@@ -474,6 +484,44 @@ export default function MembersSidebar({
         (member) => isOffline(member),
       );
     }, [liveMembers, isOffline]);
+
+  const sortedRoles = useMemo(
+    () =>
+      [...(roles ?? [])].sort(
+        (a: any, b: any) => Number(b.position ?? 0) - Number(a.position ?? 0),
+      ),
+    [roles],
+  );
+
+  const actorPermissions = useMemo(() => {
+    return (currentMember?.roles ?? []).reduce(
+      (bits: bigint, role: any) => bits | normalizePermissions(role?.permissions),
+      0n,
+    );
+  }, [currentMember?.roles]);
+
+  const canManageRoles = hasPermission(actorPermissions, Permissions.MANAGE_ROLES);
+
+  const selectedMemberRoles = useMemo(
+    () =>
+      [...(selectedMember?.roles ?? [])].sort(
+        (a: any, b: any) => Number(b.position ?? 0) - Number(a.position ?? 0),
+      ),
+    [selectedMember?.roles],
+  );
+
+  const assignableRoles = useMemo(() => {
+    const assigned = new Set(
+      selectedMemberRoles.map((role: any) => String(role.id)),
+    );
+
+    return sortedRoles.filter(
+      (role: any) =>
+        !assigned.has(String(role.id)) &&
+        !role?.isDefault &&
+        !role?.managed,
+    );
+  }, [selectedMemberRoles, sortedRoles]);
 
   const getStatusColor = (
     status?: string,
@@ -499,79 +547,74 @@ export default function MembersSidebar({
     switch (status) {
       case "ONLINE":
         return "Online";
-
       case "IDLE":
         return "Ausente";
-
       case "DND":
         return "Não perturbe";
-
       default:
         return "Offline";
     }
   };
 
-  const getBannerUrl = (
-    user: any,
-  ): string | null => {
-    if (!user) {
-      return null;
-    }
+  const toggleRole = useCallback(
+    async (role: any) => {
+      const memberId = String(selectedMember?.id ?? "");
+      const roleId = String(role?.id ?? "");
 
-    if (
-      typeof user.bannerUrl ===
-        "string" &&
-      user.bannerUrl
-    ) {
-      return user.bannerUrl;
-    }
+      if (!memberId || !roleId || roleActionId) {
+        return;
+      }
 
-    if (
-      typeof user.bannerURL ===
-        "string" &&
-      user.bannerURL
-    ) {
-      return user.bannerURL;
-    }
+      try {
+        setRoleActionId(roleId);
+        const added = await toggleMemberRole(memberId, roleId);
 
-    if (
-      typeof user.banner ===
-        "string" &&
-      user.banner
-    ) {
-      return user.banner;
-    }
+        const nextRole = sortedRoles.find(
+          (item: any) => String(item.id) === roleId,
+        ) ?? role;
 
-    if (
-      typeof user.banner?.url ===
-        "string" &&
-      user.banner.url
-    ) {
-      return user.banner.url;
-    }
+        setLiveMembers((current) =>
+          current.map((member) => {
+            if (String(member?.id ?? "") !== memberId) {
+              return member;
+            }
 
-    if (
-      typeof user.profile
-        ?.bannerUrl ===
-        "string" &&
-      user.profile.bannerUrl
-    ) {
-      return user.profile
-        .bannerUrl;
-    }
+            const currentRoles = Array.isArray(member.roles)
+              ? member.roles
+              : [];
 
-    return null;
-  };
+            return {
+              ...member,
+              roles: added
+                ? [...currentRoles, nextRole]
+                : currentRoles.filter(
+                    (item: any) => String(item.id) !== roleId,
+                  ),
+            };
+          }),
+        );
 
-  const getBannerColor = (
-    user: any,
-  ): string | undefined => {
-    return (
-      user?.bannerColor ??
-      user?.accentColor ??
-      undefined
-    );
-  };
+        setRoleMenuOpen(false);
+        pushToast({
+          type: "success",
+          title: added ? "Cargo adicionado" : "Cargo removido",
+          description: role?.name,
+        });
+      } catch (error) {
+        pushToast({
+          type: "error",
+          title: "Cargo não atualizado",
+          description:
+            error instanceof Error
+              ? error.message
+              : "Não foi possível alterar o cargo.",
+        });
+      } finally {
+        setRoleActionId(null);
+      }
+    },
+    [pushToast, roleActionId, selectedMember?.id, sortedRoles],
+  );
 
   const updatePopupPosition =
     useCallback(() => {
@@ -748,6 +791,8 @@ export default function MembersSidebar({
       return;
     }
 
+    setRoleMenuOpen(false);
+
     const animationFrame =
       requestAnimationFrame(
         updatePopupPosition,
@@ -861,7 +906,7 @@ export default function MembersSidebar({
 
   return (
     <>
-      <aside className="relative hidden min-h-0 w-60 shrink-0 flex-col border-l border-stone-300 bg-white dark:border-zinc-800/50 dark:bg-[#111214] lg:flex">
+      <aside className="typecord-members-sidebar relative hidden min-h-0 w-60 shrink-0 flex-col border-l border-stone-300 bg-white dark:border-zinc-800/50 dark:bg-[#111214] lg:flex">
         <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3">
           {groupedMembers.map(
             ({
@@ -931,7 +976,7 @@ export default function MembersSidebar({
                               );
                             }
                           }}
-                          className="group flex min-w-0 cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 transition-colors hover:bg-stone-200 focus:outline-none focus-visible:bg-stone-200 dark:hover:bg-zinc-800 dark:focus-visible:bg-zinc-800"
+                          className="typecord-member-row group flex min-w-0 cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 transition-colors hover:bg-stone-200 focus:outline-none focus-visible:bg-stone-200 dark:hover:bg-zinc-800 dark:focus-visible:bg-zinc-800"
                         >
                           <div className="relative shrink-0">
                             <Avatar
@@ -1055,7 +1100,7 @@ export default function MembersSidebar({
                             );
                           }
                         }}
-                        className="group flex min-w-0 cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 transition-colors hover:bg-stone-200 focus:outline-none focus-visible:bg-stone-200 dark:hover:bg-zinc-800 dark:focus-visible:bg-zinc-800"
+                        className="typecord-member-row group flex min-w-0 cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 transition-colors hover:bg-stone-200 focus:outline-none focus-visible:bg-stone-200 dark:hover:bg-zinc-800 dark:focus-visible:bg-zinc-800"
                       >
                         <div className="relative shrink-0">
                           <Avatar
@@ -1126,18 +1171,24 @@ export default function MembersSidebar({
             return null;
           }
 
-          const bannerUrl =
-            getBannerUrl(user);
+          const displayName =
+            user?.globalName ||
+            user?.displayName ||
+            user?.username ||
+            "Usuário";
 
-          const bannerColor =
-            getBannerColor(
-              user,
-            );
+          const bannerUrl =
+            resolveFileUrl(user?.bannerUrl ?? user?.banner ?? null);
+
+          const bio =
+            user?.bio ||
+            user?.customStatus ||
+            "Nenhuma descrição adicionada.";
 
           return (
             <div
               ref={popupRef}
-              className="fixed z-[9999] max-h-[calc(100dvh-16px)] w-[340px] max-w-[calc(100vw-16px)] overflow-x-hidden overflow-y-auto rounded-xl border border-stone-300 bg-white text-stone-900 shadow-[0_20px_70px_rgba(0,0,0,0.22)] dark:border-zinc-700/70 dark:bg-[#111214] dark:text-white dark:shadow-[0_20px_70px_rgba(0,0,0,0.65)]"
+              className="fixed z-[9999] max-h-[calc(100dvh-16px)] w-[380px] max-w-[calc(100vw-16px)] overflow-x-hidden overflow-y-auto rounded-2xl border border-stone-300 bg-white text-stone-900 shadow-[0_22px_80px_rgba(0,0,0,0.24)] dark:border-white/10 dark:bg-[#111214] dark:text-white dark:shadow-[0_22px_80px_rgba(0,0,0,0.7)]"
               style={{
                 top:
                   popupPosition.top,
@@ -1145,32 +1196,18 @@ export default function MembersSidebar({
                   popupPosition.left,
               }}
             >
-              <div
-                className={`relative h-28 shrink-0 overflow-hidden ${
-                  !bannerUrl
-                    ? "bg-gradient-to-br from-indigo-400 via-purple-400 to-fuchsia-400 dark:from-indigo-600 dark:via-purple-600 dark:to-fuchsia-600"
-                    : ""
-                }`}
-                style={{
-                  backgroundColor:
-                    !bannerUrl
-                      ? bannerColor
-                      : undefined,
-                }}
-              >
-                {bannerUrl && (
-                  <Banner
-                    bannerUrl={
-                      bannerUrl
-                    }
-                    
+              <div className="relative h-32 overflow-hidden bg-indigo-600">
+                {bannerUrl ? (
+                  <img
+                    src={bannerUrl}
+                    alt={`Banner de ${displayName}`}
+                    draggable={false}
+                    className="h-full w-full select-none object-cover"
                   />
+                ) : (
+                  <div className="h-full w-full bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600" />
                 )}
-
-                {!bannerUrl && (
-                  <div className="absolute inset-0 bg-white/10 dark:bg-black/10" />
-                )}
-
+                <div className="absolute inset-0 bg-gradient-to-t from-black/25 to-transparent" />
                 <button
                   type="button"
                   aria-label="Fechar"
@@ -1185,171 +1222,163 @@ export default function MembersSidebar({
                 </button>
               </div>
 
-              <div className="relative px-4">
-                <div className="absolute -top-12 left-4">
-                  <div className="relative">
-                    <div className="overflow-hidden rounded-full border-[6px] border-white dark:border-[#111214]">
-                      <Avatar
-                        avatarUrl={
-                          user.avatarUrl
-                        }
-                        username={
-                          user.username
-                        }
-                        globalName={
-                          user.globalName
-                        }
-                        className="h-20 w-20"
-                      />
-                    </div>
-
+              <div className="px-5 pb-5">
+                <div className="-mt-10 flex items-end gap-3">
+                  <div className="relative rounded-full border-4 border-white dark:border-[#111214]">
+                    <Avatar
+                      avatarUrl={user.avatarUrl}
+                      username={user.username}
+                      globalName={user.globalName}
+                      className="h-20 w-20"
+                    />
                     <span
                       className={`absolute bottom-1 right-1 h-5 w-5 rounded-full border-[4px] border-white dark:border-[#111214] ${getStatusColor(
                         user.status,
                       )}`}
                     />
                   </div>
-                </div>
 
-                <div className="pt-12">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <h2 className="min-w-0 flex-1 truncate text-xl font-bold text-stone-900 dark:text-white">
-                      {user?.globalName ||
-                        user?.username}
+                  <div className="min-w-0 pb-2">
+                    <h2 className="truncate text-xl font-black text-stone-950 dark:text-white">
+                      {displayName}
                     </h2>
-
-                    <button
-                      type="button"
-                      title="Mais opções"
-                      className="shrink-0 text-stone-400 transition-colors hover:text-stone-700 dark:text-zinc-500 dark:hover:text-white"
-                    >
-                      <MoreHorizontal className="h-5 w-5" />
-                    </button>
-                  </div>
-
-                  <div className="truncate text-sm text-stone-500 dark:text-zinc-400">
-                    @
-                    {
-                      user.username
-                    }
+                    <p className="truncate text-sm text-stone-500 dark:text-zinc-400">
+                      @{user.username}
+                    </p>
                   </div>
                 </div>
 
-                <div className="mt-4">
-                  <div className="flex items-center gap-2 text-xs font-semibold uppercase text-stone-500 dark:text-zinc-400">
+                <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-stone-100 px-2.5 py-1 font-bold text-stone-600 dark:bg-white/[0.06] dark:text-zinc-300">
                     <span
-                      className={`h-2 w-2 shrink-0 rounded-full ${getStatusColor(
-                        user.status,
-                      )}`}
+                      className={`h-2 w-2 rounded-full ${getStatusColor(user.status)}`}
                     />
+                    {getStatusLabel(user.status)}
+                  </span>
+                  {user?.bot && (
+                    <span className="rounded-full bg-indigo-500 px-2.5 py-1 font-black uppercase text-white">
+                      BOT
+                    </span>
+                  )}
+                </div>
 
-                    {getStatusLabel(
-                      user.status,
+                <div className="mt-5 rounded-xl bg-stone-100 px-3 py-3 dark:bg-white/[0.06]">
+                  <h3 className="text-[10px] font-black uppercase tracking-[0.14em] text-stone-500 dark:text-zinc-400">
+                    Sobre
+                  </h3>
+                  <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-stone-700 dark:text-zinc-300">
+                    {bio}
+                  </p>
+                </div>
+
+                <div className="mt-5">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <h3 className="text-[10px] font-black uppercase tracking-[0.14em] text-stone-500 dark:text-zinc-400">
+                      Cargos
+                    </h3>
+
+                    {canManageRoles && (
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setRoleMenuOpen((current) => !current)}
+                          className="flex h-7 w-7 items-center justify-center rounded-lg bg-stone-100 text-stone-600 transition hover:bg-stone-200 hover:text-stone-950 dark:bg-white/[0.06] dark:text-zinc-300 dark:hover:bg-white/10 dark:hover:text-white"
+                          title="Adicionar cargo"
+                          aria-label="Adicionar cargo"
+                        >
+                          <Plus className="h-4 w-4" />
+                        </button>
+
+                        {roleMenuOpen && (
+                          <div className="absolute right-0 top-8 z-20 w-56 overflow-hidden rounded-xl border border-stone-200 bg-white p-1 shadow-2xl dark:border-white/10 dark:bg-[#18191c]">
+                            {assignableRoles.length === 0 ? (
+                              <div className="px-3 py-4 text-center text-xs text-stone-500 dark:text-zinc-400">
+                                Nenhum cargo disponível.
+                              </div>
+                            ) : (
+                              assignableRoles.map((role: any) => (
+                                <button
+                                  key={role.id}
+                                  type="button"
+                                  disabled={Boolean(roleActionId)}
+                                  onClick={() => void toggleRole(role)}
+                                  className="flex w-full min-w-0 items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-stone-700 transition hover:bg-stone-100 disabled:opacity-50 dark:text-zinc-300 dark:hover:bg-white/[0.06]"
+                                >
+                                  <span
+                                    className="h-2.5 w-2.5 shrink-0 rounded-full"
+                                    style={{
+                                      backgroundColor: role.color || "#71717a",
+                                    }}
+                                  />
+                                  <span className="truncate">{role.name}</span>
+                                </button>
+                              ))
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedMemberRoles.length === 0 ? (
+                      <span className="text-xs text-stone-500 dark:text-zinc-500">
+                        Sem cargos atribuídos.
+                      </span>
+                    ) : (
+                      selectedMemberRoles.map((role: any) => (
+                        <span
+                          key={role.id}
+                          className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-lg border border-stone-300 bg-stone-100 px-2 py-1 text-xs font-semibold dark:border-zinc-700 dark:bg-zinc-800/70"
+                        >
+                          <span
+                            className="h-2 w-2 shrink-0 rounded-full"
+                            style={{
+                              backgroundColor: role.color || "#71717a",
+                            }}
+                          />
+                          <span className="truncate text-stone-700 dark:text-zinc-300">
+                            {role.name}
+                          </span>
+                          {canManageRoles && !role.isDefault && !role.managed && (
+                            <button
+                              type="button"
+                              disabled={roleActionId === String(role.id)}
+                              onClick={() => void toggleRole(role)}
+                              className="ml-0.5 rounded p-0.5 text-stone-400 transition hover:bg-stone-200 hover:text-rose-500 disabled:opacity-50 dark:hover:bg-zinc-700"
+                              title={`Remover ${role.name}`}
+                              aria-label={`Remover ${role.name}`}
+                            >
+                              {roleActionId === String(role.id) ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <X className="h-3 w-3" />
+                              )}
+                            </button>
+                          )}
+                        </span>
+                      ))
                     )}
                   </div>
                 </div>
 
-                {selectedMember.roles &&
-                  selectedMember
-                    .roles.length >
-                    0 && (
-                    <>
-                      <div className="my-4 h-px bg-stone-200 dark:bg-zinc-800" />
-
-                      <div>
-                        <div className="mb-2 text-xs font-bold uppercase text-stone-500 dark:text-zinc-400">
-                          Roles
-                        </div>
-
-                        <div className="flex flex-wrap gap-1.5">
-                          {[
-                            ...selectedMember.roles,
-                          ]
-                            .sort(
-                              (
-                                a: any,
-                                b: any,
-                              ) =>
-                                b.position -
-                                a.position,
-                            )
-                            .map(
-                              (
-                                role: any,
-                              ) => (
-                                <div
-                                  key={
-                                    role.id
-                                  }
-                                  className="flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-stone-300 bg-stone-100 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-800/70"
-                                >
-                                  <span
-                                    className="h-2 w-2 shrink-0 rounded-full"
-                                    style={{
-                                      backgroundColor:
-                                        role.color ||
-                                        "#71717a",
-                                    }}
-                                  />
-
-                                  <span className="truncate text-stone-700 dark:text-zinc-300">
-                                    {
-                                      role.name
-                                    }
-                                  </span>
-                                </div>
-                              ),
-                            )}
-                        </div>
-                      </div>
-                    </>
-                  )}
-
-                <div className="my-4 h-px bg-stone-200 dark:bg-zinc-800" />
-
-                <div className="flex items-center gap-2 pb-4">
-                  <button
-                    type="button"
-                    className="flex h-10 min-w-0 flex-1 items-center justify-center gap-2 rounded-md bg-zinc-900 px-3 text-sm font-semibold text-white transition-colors hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
-                  >
-                    <MessageCircle className="h-4 w-4 shrink-0" />
-
-                    <span className="truncate">
-                      Mensagem
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    title="Copiar ID"
-                    onClick={async () => {
-                      try {
-                        await navigator.clipboard.writeText(
-                          String(
-                            user.id,
-                          ),
-                        );
-                      } catch (
-                        error
-                      ) {
-                        console.error(
-                          "[COPY_USER_ID_ERROR]",
-                          error,
-                        );
-                      }
-                    }}
-                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-stone-200 text-stone-600 transition-colors hover:bg-stone-300 hover:text-stone-900 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 dark:hover:text-white"
-                  >
-                    <Copy className="h-4 w-4" />
-                  </button>
-
-                  <button
-                    type="button"
-                    title="Ver perfil"
-                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-stone-200 text-stone-600 transition-colors hover:bg-stone-300 hover:text-stone-900 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 dark:hover:text-white"
-                  >
-                    <CircleUserRound className="h-4 w-4" />
-                  </button>
+                <div className="mt-5 grid grid-cols-2 gap-2 border-t border-stone-200 pt-4 text-xs dark:border-zinc-800">
+                  <div className="min-w-0">
+                    <div className="font-black uppercase tracking-[0.12em] text-stone-400">
+                      Membro
+                    </div>
+                    <div className="mt-1 truncate font-mono text-stone-600 dark:text-zinc-300">
+                      {String(selectedMember.id ?? "-")}
+                    </div>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-black uppercase tracking-[0.12em] text-stone-400">
+                      Usuário
+                    </div>
+                    <div className="mt-1 truncate font-mono text-stone-600 dark:text-zinc-300">
+                      {String(user.id ?? "-")}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

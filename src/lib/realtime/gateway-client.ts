@@ -28,7 +28,23 @@ type GatewayConnectError =
     };
   };
 
+export type GatewayConnectionState =
+  | "idle"
+  | "connecting"
+  | "connected"
+  | "reconnecting"
+  | "disconnected"
+  | "error";
+
+export type GatewayConnectionStatus = {
+  state: GatewayConnectionState;
+  message?: string;
+};
+
 const gatewayEvents =
+  new EventTarget();
+
+const gatewayStatusEvents =
   new EventTarget();
 
 const seenEvents =
@@ -40,6 +56,9 @@ const seenEvents =
 const MAX_SEEN_EVENTS =
   1000;
 
+const subscribedChannels =
+  new Set<string>();
+
 let socket:
   | GatewaySocket
   | null = null;
@@ -47,6 +66,22 @@ let socket:
 let ready:
   | GatewayReadyPayload
   | null = null;
+
+let gatewayStatus: GatewayConnectionStatus = {
+  state: "idle",
+};
+
+function setGatewayStatus(status: GatewayConnectionStatus) {
+  gatewayStatus = status;
+  gatewayStatusEvents.dispatchEvent(
+    new CustomEvent<GatewayConnectionStatus>(
+      "__GATEWAY_STATUS__",
+      {
+        detail: status,
+      },
+    ),
+  );
+}
 
 async function requestToken(): Promise<string> {
   const response =
@@ -216,9 +251,17 @@ export function getGatewaySocket() {
     },
   });
 
+  setGatewayStatus({
+    state: "connecting",
+  });
+
   socket.on(
     "connect",
     () => {
+      setGatewayStatus({
+        state: "connected",
+      });
+
       console.log(
         "[GATEWAY_CONNECTED]",
         {
@@ -252,6 +295,15 @@ export function getGatewaySocket() {
           },
         ),
       );
+
+      for (const channelId of subscribedChannels) {
+        void emitSubscribeChannel(channelId).catch((error) => {
+          console.error(
+            "[GATEWAY_CHANNEL_RESUBSCRIBE]",
+            error,
+          );
+        });
+      }
     },
   );
 
@@ -294,6 +346,14 @@ export function getGatewaySocket() {
       const error =
         rawError as GatewayConnectError;
 
+      setGatewayStatus({
+        state: "error",
+        message:
+          error.data?.message ??
+          error.message ??
+          "Não foi possível conectar ao Gateway.",
+      });
+
       console.error(
         "[GATEWAY_CONNECT_ERROR]",
         {
@@ -324,6 +384,14 @@ export function getGatewaySocket() {
     (reason) => {
       ready = null;
 
+      setGatewayStatus({
+        state:
+          reason === "io server disconnect"
+            ? "disconnected"
+            : "reconnecting",
+        message: reason,
+      });
+
       console.log(
         "[GATEWAY_DISCONNECTED]",
         reason,
@@ -332,6 +400,46 @@ export function getGatewaySocket() {
   );
 
   return socket;
+}
+
+async function emitSubscribeChannel(channelId: string) {
+  const current =
+    await waitForGatewayConnection();
+
+  return new Promise<void>(
+    (
+      resolve,
+      reject,
+    ) => {
+      current.emit(
+        "gateway:subscribe-channel",
+        {
+          channelId,
+        },
+        (
+          response,
+        ) => {
+          if (
+            !response.ok
+          ) {
+            reject(
+              new Error(
+                response.message,
+              ),
+            );
+            return;
+          }
+
+          console.log(
+            "[GATEWAY_CHANNEL_SUBSCRIBED]",
+            channelId,
+          );
+
+          resolve();
+        },
+      );
+    },
+  );
 }
 
 export function connectGateway() {
@@ -360,10 +468,30 @@ export function disconnectGateway() {
   ready = null;
 
   seenEvents.clear();
+  subscribedChannels.clear();
 }
 
 export function getGatewayReady() {
   return ready;
+}
+
+export function getGatewayStatus() {
+  return gatewayStatus;
+}
+
+export function onGatewayStatus(
+  handler: (status: GatewayConnectionStatus) => void,
+) {
+  const listener = (event: Event) => {
+    handler((event as CustomEvent<GatewayConnectionStatus>).detail);
+  };
+
+  gatewayStatusEvents.addEventListener("__GATEWAY_STATUS__", listener);
+  handler(gatewayStatus);
+
+  return () => {
+    gatewayStatusEvents.removeEventListener("__GATEWAY_STATUS__", listener);
+  };
 }
 
 export function waitForGatewayConnection(
@@ -451,50 +579,23 @@ export async function subscribeChannel(
     );
   }
 
-  const current =
-    await waitForGatewayConnection();
+  subscribedChannels.add(channelId);
 
-  return new Promise<void>(
-    (
-      resolve,
-      reject,
-    ) => {
-      current.emit(
-        "gateway:subscribe-channel",
-        {
-          channelId,
-        },
-        (
-          response,
-        ) => {
-          if (
-            !response.ok
-          ) {
-            reject(
-              new Error(
-                response.message,
-              ),
-            );
-            return;
-          }
-
-          console.log(
-            "[GATEWAY_CHANNEL_SUBSCRIBED]",
-            channelId,
-          );
-
-          resolve();
-        },
-      );
-    },
-  );
+  return emitSubscribeChannel(channelId);
 }
 
 export async function unsubscribeChannel(
   channelId: string,
 ) {
   if (
-    !channelId ||
+    !channelId
+  ) {
+    return;
+  }
+
+  subscribedChannels.delete(channelId);
+
+  if (
     !socket ||
     !socket.connected
   ) {

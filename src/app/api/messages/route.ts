@@ -1,106 +1,33 @@
-import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import { getCurrentUser } from "@/lib/current-user";
+import { NextRequest, NextResponse } from "next/server";
 
-const MESSAGES_BATCH = 10;
+import { getMessages } from "@/actions/messages";
 
-export async function GET(req: Request) {
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function GET(request: NextRequest) {
   try {
-    const user = await getCurrentUser();
-
-    if (!user) {
-      return new NextResponse("Não autorizado", {
-        status: 401,
-      });
-    }
-
-    const { searchParams } = new URL(req.url);
-
-    const cursor = searchParams.get("cursor");
-    const channelId = searchParams.get("channelId");
+    const channelId = request.nextUrl.searchParams.get("channelId")?.trim();
 
     if (!channelId) {
-      return new NextResponse("ID do Canal ausente", {
-        status: 400,
-      });
+      return NextResponse.json(
+        { success: false, message: "channelId é obrigatório." },
+        { status: 400 },
+      );
     }
 
-    const messages = await db.message.findMany({
-      take: MESSAGES_BATCH,
+    const items = await getMessages(channelId);
 
-      ...(cursor
-        ? {
-            skip: 1,
-            cursor: {
-              id: cursor,
-            },
-          }
-        : {}),
-
-      where: {
-        channelId,
-        deleted: false,
-      },
-
-      include: {
-        member: {
-          include: {
-            user: {
-              include: {
-                bot: {
-                  select: {
-                    id: true,
-                    verified: true,
-                  },
-                },
-              },
-            },
-          },
-        },
-
-        attachments: true,
-
-        embeds: true,
-
-        replyTo: {
-          include: {
-            member: {
-              include: {
-                user: {
-                  include: {
-                    bot: {
-                      select: {
-                        id: true,
-                        verified: true,
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
-
-    const nextCursor =
-      messages.length === MESSAGES_BATCH
-        ? messages[MESSAGES_BATCH - 1].id
-        : null;
-
-    return NextResponse.json({
-      items: messages,
-      nextCursor,
-    });
+    return NextResponse.json(
+      { success: true, items, nextCursor: null },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   } catch (error) {
-    console.error("[MESSAGES_GET]", error);
+    console.error("[GUILD_MESSAGES_GET]", error);
 
-    return new NextResponse("Erro Interno", {
-      status: 500,
-    });
+    return NextResponse.json(
+      { success: false, message: "Não foi possível carregar as mensagens." },
+      { status: 500 },
+    );
   }
 }

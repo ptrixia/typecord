@@ -16,7 +16,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { updateUserProfile, type ProfileStatus } from "@/actions/user";
+import { updateRichPresence, updateUserProfile, type ProfileStatus } from "@/actions/user";
 import Modal from "@/components/Modal";
 import Avatar from "./Image/Avatar";
 import Banner from "./Image/Banner";
@@ -31,6 +31,12 @@ type ProfileUser = {
   bio?: string | null;
   status?: ProfileStatus | null;
   customStatus?: string | null;
+  richPresence?: {
+    type: "PLAYING" | "LISTENING" | "WATCHING" | "STREAMING" | "COMPETING" | "CUSTOM";
+    name: string;
+    details?: string | null;
+    state?: string | null;
+  } | null;
 };
 
 interface UserProfileContentProps {
@@ -90,10 +96,10 @@ function MenuItem({
     <button
       type="button"
       onClick={onClick}
-      className={`flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-sm font-medium transition-colors ${
+      className={`flex w-full items-center gap-3 rounded-lg px-2.5 py-2.5 text-sm font-medium transition-colors ${
         danger
           ? "text-rose-500 hover:bg-rose-500/10"
-          : "text-stone-700 hover:bg-stone-200 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          : "text-stone-700 hover:bg-stone-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
       }`}
     >
       <span className="flex h-4 w-4 shrink-0 items-center justify-center">
@@ -106,7 +112,7 @@ function MenuItem({
 }
 
 function Divider() {
-  return <div className="my-1 border-t border-stone-200 dark:border-zinc-800" />;
+  return <div className="my-1.5 border-t border-stone-200 dark:border-zinc-800/80" />;
 }
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
@@ -136,6 +142,9 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
   const [editBio, setEditBio] = useState("");
   const [editStatus, setEditStatus] = useState<ProfileStatus>("OFFLINE");
   const [editCustomStatus, setEditCustomStatus] = useState("");
+  const [activityType, setActivityType] = useState<"PLAYING" | "LISTENING" | "WATCHING" | "STREAMING" | "COMPETING" | "CUSTOM">("CUSTOM");
+  const [activityName, setActivityName] = useState("");
+  const [activityDetails, setActivityDetails] = useState("");
 
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [uploadingBanner, setUploadingBanner] = useState(false);
@@ -158,6 +167,9 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
     setEditBio(localUser.bio || "");
     setEditStatus(localUser.status || "OFFLINE");
     setEditCustomStatus(localUser.customStatus || "");
+    setActivityType(localUser.richPresence?.type || "CUSTOM");
+    setActivityName(localUser.richPresence?.name || "");
+    setActivityDetails(localUser.richPresence?.details || "");
   }, [localUser, settingsOpen]);
 
   useEffect(() => {
@@ -211,11 +223,14 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
 
   if (!localUser) {
     return (
-      <div className="flex h-[58px] shrink-0 items-center border-t border-stone-300 bg-stone-300/80 px-3 text-xs text-stone-500 dark:border-zinc-950 dark:bg-[#1e1f22] dark:text-zinc-500">
-        Usuário não carregado
+      <div className="fixed bottom-6 left-6 z-50 flex h-[64px] w-[280px] shrink-0 items-center justify-center rounded-2xl border border-stone-200/60 bg-white/80 px-3 text-sm text-stone-500 shadow-xl backdrop-blur-xl dark:border-zinc-800/60 dark:bg-[#111214]/80 dark:text-zinc-500">
+        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+        Carregando...
       </div>
     );
   }
+
+  const profileUser = localUser;
 
   function closeMenu() {
     setMenuOpen(false);
@@ -230,19 +245,19 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
   }
 
   function resetDraft() {
-    setEditUsername(localUser.username || "");
-    setEditGlobalName(localUser.globalName || "");
-    setEditAvatarUrl(localUser.avatarUrl || null);
-    setEditBannerUrl(localUser.bannerUrl || null);
-    setEditBio(localUser.bio || "");
-    setEditStatus(localUser.status || "OFFLINE");
-    setEditCustomStatus(localUser.customStatus || "");
+    setEditUsername(profileUser.username || "");
+    setEditGlobalName(profileUser.globalName || "");
+    setEditAvatarUrl(profileUser.avatarUrl || null);
+    setEditBannerUrl(profileUser.bannerUrl || null);
+    setEditBio(profileUser.bio || "");
+    setEditStatus(profileUser.status || "OFFLINE");
+    setEditCustomStatus(profileUser.customStatus || "");
     setFeedback("");
   }
 
   async function copyUserId() {
     try {
-      await navigator.clipboard.writeText(localUser.id);
+      await navigator.clipboard.writeText(profileUser.id);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1600);
     } catch {
@@ -364,6 +379,52 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
     }
   }
 
+  async function saveRichPresence() {
+    if (saving) return;
+    setSaving(true);
+    setFeedback("");
+
+    try {
+      const updated = await updateRichPresence(
+        activityName.trim()
+          ? {
+              type: activityType,
+              name: activityName,
+              details: activityDetails || null,
+            }
+          : null,
+      );
+      setLocalUser((current) => (current ? { ...current, ...updated } : current));
+      router.refresh();
+    } catch (error) {
+      setFeedback(
+        error instanceof Error ? error.message : "Não foi possível salvar a atividade.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function clearRichPresence() {
+    if (saving) return;
+    setSaving(true);
+    setFeedback("");
+
+    try {
+      const updated = await updateRichPresence(null);
+      setActivityName("");
+      setActivityDetails("");
+      setLocalUser((current) => (current ? { ...current, ...updated } : current));
+      router.refresh();
+    } catch (error) {
+      setFeedback(
+        error instanceof Error ? error.message : "Não foi possível limpar a atividade.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <>
       <input
@@ -384,7 +445,7 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
 
       <div
         ref={menuRef}
-        className="relative flex h-[58px] shrink-0 items-center gap-1 border-t border-stone-300 bg-stone-300/80 px-2 dark:border-zinc-950 dark:bg-[#1e1f22]"
+        className="fixed bottom-6 left-6 z-50 flex h-[64px] w-[280px] shrink-0 items-center gap-1.5 rounded-2xl border border-stone-200/60 bg-white/80 p-2 shadow-2xl backdrop-blur-xl transition-all hover:shadow-indigo-500/10 dark:border-zinc-800/60 dark:bg-[#111214]/80"
       >
         <button
           type="button"
@@ -392,25 +453,25 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
             setMenuOpen((current) => !current);
             setStatusMenuOpen(false);
           }}
-          className="flex min-w-0 flex-1 items-center rounded-md px-1 py-1 text-left transition-colors hover:bg-stone-400/40 dark:hover:bg-zinc-800/80"
+          className="flex min-w-0 flex-1 items-center rounded-xl p-1.5 text-left transition-colors hover:bg-stone-100/80 dark:hover:bg-zinc-800/80"
         >
           <div className="relative shrink-0">
             <Avatar
               avatarUrl={localUser.avatarUrl}
               username={username}
               globalName={localUser.globalName}
-              className="h-8 w-8"
+              className="h-9 w-9 rounded-full shadow-sm"
             />
             <span
-              className={`absolute bottom-[-1px] right-[-1px] h-3 w-3 rounded-full border-[3px] border-stone-300 dark:border-[#1e1f22] ${currentStatusOption.color}`}
+              className={`absolute bottom-[-1px] right-[-1px] h-3.5 w-3.5 rounded-full border-[3px] border-white dark:border-[#111214] ${currentStatusOption.color}`}
             />
           </div>
 
-          <div className="ml-2 min-w-0 flex-1">
-            <div className="truncate text-[13px] font-semibold leading-tight text-stone-900 dark:text-white">
+          <div className="ml-3 min-w-0 flex-1">
+            <div className="truncate text-sm font-semibold leading-tight text-stone-900 dark:text-white">
               {displayName}
             </div>
-            <div className="truncate text-[11px] leading-tight text-stone-500 dark:text-zinc-400">
+            <div className="truncate text-xs leading-tight text-stone-500 dark:text-zinc-400">
               {localUser.customStatus || currentStatusOption.label}
             </div>
           </div>
@@ -420,17 +481,17 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
           type="button"
           title="Configurações do perfil"
           onClick={() => openSettings("profile")}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-stone-600 transition-colors hover:bg-stone-400/40 hover:text-stone-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-stone-500 transition-colors hover:bg-stone-100/80 hover:text-stone-900 dark:text-zinc-400 dark:hover:bg-zinc-800/80 dark:hover:text-white"
         >
-          <Settings className="h-[18px] w-[18px]" />
+          <Settings className="h-5 w-5" />
         </button>
 
         {menuOpen && (
-          <div className="absolute bottom-[66px] left-1 z-[100] w-[calc(100%-8px)] rounded-xl border border-stone-300 bg-white p-1.5 shadow-2xl dark:border-zinc-800 dark:bg-[#111214]">
+          <div className="absolute bottom-[calc(100%+16px)] left-0 z-[100] w-[280px] rounded-2xl border border-stone-200/60 bg-white p-2 shadow-2xl backdrop-blur-xl dark:border-zinc-800/80 dark:bg-[#111214]/95">
             <button
               type="button"
               onClick={() => openSettings("profile")}
-              className="mb-1 w-full overflow-hidden rounded-lg bg-stone-100 text-left transition hover:bg-stone-200 dark:bg-[#18191c] dark:hover:bg-zinc-800"
+              className="mb-2 w-full overflow-hidden rounded-xl bg-stone-50 text-left transition hover:bg-stone-100 dark:bg-[#18191c] dark:hover:bg-zinc-800"
             >
               <div className="relative h-16 overflow-hidden bg-indigo-600">
                 {localUser.bannerUrl ? (
@@ -441,24 +502,24 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
               </div>
 
               <div className="relative px-3 pb-3">
-                <div className="-mt-5 flex items-end gap-2">
-                  <div className="relative rounded-full border-[4px] border-stone-100 dark:border-[#18191c]">
+                <div className="-mt-6 flex items-end gap-2">
+                  <div className="relative rounded-full border-[4px] border-stone-50 dark:border-[#18191c]">
                     <Avatar
                       avatarUrl={localUser.avatarUrl}
                       username={username}
                       globalName={localUser.globalName}
-                      className="h-11 w-11"
+                      className="h-12 w-12"
                     />
                     <span
-                      className={`absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-[3px] border-stone-100 dark:border-[#18191c] ${currentStatusOption.color}`}
+                      className={`absolute bottom-0 right-0 h-4 w-4 rounded-full border-[3px] border-stone-50 dark:border-[#18191c] ${currentStatusOption.color}`}
                     />
                   </div>
 
-                  <div className="min-w-0 pb-0.5">
+                  <div className="min-w-0 pb-1">
                     <div className="truncate text-sm font-bold text-stone-900 dark:text-white">
                       {displayName}
                     </div>
-                    <div className="truncate text-xs text-stone-500 dark:text-zinc-400">
+                    <div className="truncate text-[11px] text-stone-500 dark:text-zinc-400">
                       @{username}
                     </div>
                   </div>
@@ -474,7 +535,7 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
 
             <div className="space-y-0.5">
               <MenuItem
-                icon={<UserRound className="h-4 w-4" />}
+                icon={<UserRound className="h-[18px] w-[18px]" />}
                 onClick={() => openSettings("profile")}
               >
                 Meu perfil
@@ -492,14 +553,14 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
                 </MenuItem>
 
                 {statusMenuOpen && (
-                  <div className="absolute bottom-0 left-full ml-2 w-[235px] rounded-xl border border-stone-300 bg-white p-1.5 shadow-2xl dark:border-zinc-800 dark:bg-[#111214]">
+                  <div className="absolute bottom-0 left-[calc(100%+12px)] w-[240px] rounded-2xl border border-stone-200/60 bg-white p-2 shadow-2xl backdrop-blur-xl dark:border-zinc-800/80 dark:bg-[#111214]/95">
                     {statusOptions.map((option) => (
                       <button
                         key={option.id}
                         type="button"
                         disabled={quickStatusSaving}
                         onClick={() => changeQuickStatus(option.id)}
-                        className="flex w-full items-start gap-3 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-stone-200 disabled:opacity-50 dark:hover:bg-zinc-800"
+                        className="flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-stone-100 disabled:opacity-50 dark:hover:bg-zinc-800"
                       >
                         <span className={`mt-1 h-3 w-3 shrink-0 rounded-full ${option.color}`} />
                         <div className="min-w-0 flex-1">
@@ -522,15 +583,15 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
               <Divider />
 
               <MenuItem
-                icon={copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                icon={copied ? <Check className="h-[18px] w-[18px]" /> : <Copy className="h-[18px] w-[18px]" />}
                 onClick={copyUserId}
               >
-                {copied ? "ID copiado" : "Copiar ID do usuário"}
+                {copied ? "ID copiado" : "Copiar ID"}
               </MenuItem>
 
               <Divider />
 
-              <MenuItem icon={<LogOut className="h-4 w-4" />} danger onClick={logout}>
+              <MenuItem icon={<LogOut className="h-[18px] w-[18px]" />} danger onClick={logout}>
                 Sair
               </MenuItem>
             </div>
@@ -675,38 +736,12 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
                   maxLength={32}
                   onChange={(event) => setEditGlobalName(event.target.value)}
                   placeholder="Como as pessoas verão seu nome"
-                  className="h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm text-stone-900 outline-none transition focus:border-indigo-500 dark:border-zinc-700 dark:bg-black dark:text-white"
+                  className="h-10 w-full rounded-lg border border-stone-300 bg-white px-3 text-sm text-stone-900 outline-none transition focus:border-indigo-500 dark:border-zinc-700 dark:bg-black dark:text-white"
                 />
                 <div className="mt-1 text-right text-[10px] text-stone-400">
                   {editGlobalName.length}/32
                 </div>
               </div>
-
-              {/* <div>
-                <FieldLabel>Nome de usuário</FieldLabel>
-                <div className="relative">
-                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-stone-400">
-                    @
-                  </span>
-                  <input
-                    type="text"
-                    value={editUsername}
-                    maxLength={32}
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    onChange={(event) =>
-                      setEditUsername(
-                        event.target.value.toLowerCase().replace(/[^a-z0-9._]/g, ""),
-                      )
-                    }
-                    className="h-10 w-full rounded-md border border-stone-300 bg-white pl-8 pr-3 text-sm text-stone-900 outline-none transition focus:border-indigo-500 dark:border-zinc-700 dark:bg-black dark:text-white"
-                  />
-                </div>
-                <p className="mt-1 text-[10px] text-stone-500 dark:text-zinc-500">
-                  2–32 caracteres. Letras minúsculas, números, ponto e underline.
-                </p>
-              </div> */}
 
               <div>
                 <FieldLabel>Sobre mim</FieldLabel>
@@ -716,7 +751,7 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
                   rows={4}
                   onChange={(event) => setEditBio(event.target.value)}
                   placeholder="Conte um pouco sobre você..."
-                  className="w-full resize-none rounded-md border border-stone-300 bg-white p-3 text-sm text-stone-900 outline-none transition focus:border-indigo-500 dark:border-zinc-700 dark:bg-black dark:text-white"
+                  className="w-full resize-none rounded-lg border border-stone-300 bg-white p-3 text-sm text-stone-900 outline-none transition focus:border-indigo-500 dark:border-zinc-700 dark:bg-black dark:text-white"
                 />
                 <div className="mt-1 text-right text-[10px] text-stone-400">
                   {editBio.length}/190
@@ -765,7 +800,7 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
                     maxLength={128}
                     onChange={(event) => setEditCustomStatus(event.target.value)}
                     placeholder="O que você está fazendo?"
-                    className="h-10 w-full rounded-md border border-stone-300 bg-white px-3 pr-9 text-sm text-stone-900 outline-none transition focus:border-indigo-500 dark:border-zinc-700 dark:bg-black dark:text-white"
+                    className="h-10 w-full rounded-lg border border-stone-300 bg-white px-3 pr-9 text-sm text-stone-900 outline-none transition focus:border-indigo-500 dark:border-zinc-700 dark:bg-black dark:text-white"
                   />
 
                   {editCustomStatus && (
@@ -781,6 +816,55 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
                 </div>
                 <div className="mt-1 text-right text-[10px] text-stone-400">
                   {editCustomStatus.length}/128
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-stone-200 p-3 dark:border-zinc-800">
+                <FieldLabel>Rich presence</FieldLabel>
+                <div className="grid gap-2 sm:grid-cols-[150px_1fr]">
+                  <select
+                    value={activityType}
+                    onChange={(event) => setActivityType(event.target.value as typeof activityType)}
+                    className="h-10 rounded-lg border border-stone-300 bg-white px-3 text-sm outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-black dark:text-white"
+                  >
+                    <option value="CUSTOM">Custom</option>
+                    <option value="PLAYING">Jogando</option>
+                    <option value="LISTENING">Ouvindo</option>
+                    <option value="WATCHING">Assistindo</option>
+                    <option value="STREAMING">Transmitindo</option>
+                    <option value="COMPETING">Competindo</option>
+                  </select>
+                  <input
+                    value={activityName}
+                    onChange={(event) => setActivityName(event.target.value)}
+                    maxLength={128}
+                    placeholder="Nome da atividade"
+                    className="h-10 rounded-lg border border-stone-300 bg-white px-3 text-sm outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-black dark:text-white"
+                  />
+                </div>
+                <input
+                  value={activityDetails}
+                  onChange={(event) => setActivityDetails(event.target.value)}
+                  maxLength={128}
+                  placeholder="Detalhes"
+                  className="mt-2 h-10 w-full rounded-lg border border-stone-300 bg-white px-3 text-sm outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-black dark:text-white"
+                />
+                <div className="mt-3 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void clearRichPresence()}
+                    className="rounded-lg px-3 py-2 text-xs font-semibold text-stone-500 hover:bg-stone-100 dark:hover:bg-zinc-900"
+                  >
+                    Limpar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void saveRichPresence()}
+                    disabled={saving}
+                    className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50"
+                  >
+                    Salvar atividade
+                  </button>
                 </div>
               </div>
 
@@ -838,7 +922,7 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
                   resetDraft();
                   setSettingsOpen(false);
                 }}
-                className="rounded-md px-3 py-2 text-xs font-semibold text-stone-600 transition hover:bg-stone-100 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-900"
+                className="rounded-lg px-3 py-2 text-xs font-semibold text-stone-600 transition hover:bg-stone-100 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-900"
               >
                 Cancelar
               </button>
@@ -852,7 +936,7 @@ export default function UserProfileContent({ user }: UserProfileContentProps) {
                   !hasUnsavedChanges
                 }
                 onClick={saveProfile}
-                className="flex min-w-28 items-center justify-center gap-2 rounded-md bg-indigo-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex min-w-28 items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                 {saving ? "Salvando..." : "Salvar"}

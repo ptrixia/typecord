@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Plus, Compass } from "lucide-react";
 
 import GuildIcon from "../Guild/GuildIcon";
@@ -8,15 +8,83 @@ import DirectMessagesIcon from "../DirectMessages/DirectMessagesIcon";
 import GuildModal from "./GuildModal";
 import DiscoverModal from "./DiscoverModal";
 import { PartialGuild } from "@/actions/guilds";
-import { testGuildMemberAdd } from "@/actions/test-welcome";
+import { onGatewayEvent } from "@/lib/realtime/gateway-client";
 
 interface SidebarClientProps {
   initialGuilds: PartialGuild[];
 }
 
 export default function SidebarClient({ initialGuilds }: SidebarClientProps) {
+  const [guilds, setGuilds] = useState(initialGuilds);
   const [isGuildModalOpen, setIsGuildModalOpen] = useState(false);
   const [isDiscoverModalOpen, setIsDiscoverModalOpen] = useState(false);
+
+  useEffect(() => {
+    setGuilds(initialGuilds);
+  }, [initialGuilds]);
+
+  useEffect(() => {
+    const removeCreate = onGatewayEvent<any>("GUILD_CREATE", ({ data }) => {
+      const guild = data?.guild ?? data;
+
+      if (!guild?.id) {
+        return;
+      }
+
+      setGuilds((current) => {
+        if (current.some((item) => String(item.id) === String(guild.id))) {
+          return current;
+        }
+
+        return [
+          ...current,
+          {
+            id: String(guild.id),
+            name: String(guild.name ?? "Servidor"),
+            iconUrl: guild.iconUrl ?? null,
+          },
+        ];
+      });
+    });
+
+    const removeUpdate = onGatewayEvent<any>("GUILD_UPDATE", ({ data }) => {
+      const guild = data?.guild ?? data;
+
+      if (!guild?.id) {
+        return;
+      }
+
+      setGuilds((current) =>
+        current.map((item) =>
+          String(item.id) === String(guild.id)
+            ? {
+                ...item,
+                name: String(guild.name ?? item.name),
+                iconUrl: guild.iconUrl ?? item.iconUrl,
+              }
+            : item,
+        ),
+      );
+    });
+
+    const removeDelete = onGatewayEvent<any>("GUILD_DELETE", ({ data }) => {
+      const guildId = String(data?.guildId ?? data?.id ?? "");
+
+      if (!guildId) {
+        return;
+      }
+
+      setGuilds((current) =>
+        current.filter((item) => String(item.id) !== guildId),
+      );
+    });
+
+    return () => {
+      removeCreate();
+      removeUpdate();
+      removeDelete();
+    };
+  }, []);
 
   return (
     <>
@@ -41,7 +109,7 @@ export default function SidebarClient({ initialGuilds }: SidebarClientProps) {
             [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden
           "
         >
-          {initialGuilds.map((guild) => (
+          {guilds.map((guild) => (
             <GuildIcon key={guild.id} guild={guild} />
           ))}
 

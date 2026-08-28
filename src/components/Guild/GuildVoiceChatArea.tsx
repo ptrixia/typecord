@@ -46,6 +46,7 @@ import {
 import "@livekit/components-styles";
 
 import type { ChatAreaProps } from "./ChatArea";
+import { onGatewayEvent } from "@/lib/realtime/gateway-client";
 
 interface VoiceCredentials {
   token: string;
@@ -288,8 +289,8 @@ function MediaControlButton({
   const colors = danger
     ? "bg-red-500 text-white hover:bg-red-400"
     : active
-      ? "bg-indigo-500 text-white shadow-lg shadow-indigo-500/20 hover:bg-indigo-400"
-      : "bg-white/10 text-zinc-100 hover:bg-white/15";
+      ? "bg-white text-zinc-950 shadow-lg shadow-white/10 hover:bg-zinc-100"
+      : "bg-white/[0.08] text-zinc-100 ring-1 ring-inset ring-white/10 hover:bg-white/[0.14]";
 
   return (
     <button
@@ -299,7 +300,7 @@ function MediaControlButton({
       title={label}
       aria-label={label}
       aria-pressed={active}
-      className={`flex min-w-14 flex-col items-center gap-1.5 rounded-2xl px-3 py-2 text-[10px] font-semibold transition duration-200 disabled:cursor-not-allowed disabled:opacity-40 ${colors}`}
+      className={`flex min-w-14 flex-col items-center gap-1.5 rounded-[18px] px-3 py-2 text-[10px] font-semibold transition duration-200 disabled:cursor-not-allowed disabled:opacity-40 ${colors}`}
     >
       <span className="flex h-5 items-center justify-center">
         {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : children}
@@ -643,6 +644,20 @@ function VoiceConference({
   }, [isMicrophoneEnabled, localParticipant, permissions.speak, settings]);
 
   useEffect(() => {
+    const channelId = String(channel?.id ?? "");
+    if (!channelId) return;
+
+    return onGatewayEvent<any>("SOUNDBOARD_PLAY", ({ data }) => {
+      if (String(data?.channelId ?? "") !== channelId || !data?.sound?.url) return;
+      const audio = new Audio(String(data.sound.url));
+      audio.volume = Math.max(0, Math.min(1, Number(data.sound.volume ?? 1)));
+      void audio.play().catch((error) => {
+        console.error("[SOUNDBOARD_AUDIO_PLAY]", error);
+      });
+    });
+  }, [channel?.id]);
+
+  useEffect(() => {
     return () => {
       if (noticeTimerRef.current !== null) {
         window.clearTimeout(noticeTimerRef.current);
@@ -755,19 +770,17 @@ function VoiceConference({
   return (
     <div
       ref={containerRef}
-      className="typecord-voice relative flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden bg-[#090a0d] text-zinc-100"
+      className="typecord-voice relative flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden bg-[#07080b] text-zinc-100"
     >
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_16%_0%,rgba(99,102,241,0.16),transparent_32%),radial-gradient(circle_at_90%_90%,rgba(16,185,129,0.08),transparent_30%)]" />
-
-      <header className="relative z-30 flex min-h-16 shrink-0 items-center justify-between gap-3 border-b border-white/[0.07] bg-[#0b0c10]/90 px-4 py-3 backdrop-blur-xl sm:px-5">
+      <header className="relative z-30 flex min-h-16 shrink-0 items-center justify-between gap-3 border-b border-white/[0.08] bg-[#111217]/85 px-4 py-3 shadow-[0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-2xl sm:px-5">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-indigo-500/15 text-indigo-300 ring-1 ring-inset ring-indigo-400/20">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-white text-zinc-950 shadow-lg shadow-black/20">
             <Headphones className="h-5 w-5" />
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h1 className="truncate text-sm font-bold text-white">{channelName}</h1>
-              <span className="hidden rounded-full bg-emerald-500/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] text-emerald-400 sm:inline-flex">
+              <span className="hidden rounded-md bg-emerald-500/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] text-emerald-400 sm:inline-flex">
                 ao vivo
               </span>
             </div>
@@ -792,7 +805,7 @@ function VoiceConference({
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5">
-          <div className="hidden items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.035] px-3 py-2 md:flex">
+          <div className="hidden items-center gap-3 rounded-2xl border border-white/[0.08] bg-white/[0.06] px-3 py-2 shadow-inner md:flex">
             <span
               className={`flex items-center gap-1.5 text-[10px] font-semibold ${qualityInfo.className}`}
             >
@@ -808,7 +821,7 @@ function VoiceConference({
           <button
             type="button"
             onClick={() => void copyChannelLink()}
-            className="flex h-9 w-9 items-center justify-center rounded-xl text-zinc-400 transition hover:bg-white/[0.07] hover:text-white"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-zinc-400 transition hover:bg-white/[0.07] hover:text-white"
             title="Copiar link do canal"
             aria-label="Copiar link do canal"
           >
@@ -817,18 +830,17 @@ function VoiceConference({
         </div>
       </header>
 
-      <main className="relative z-10 min-h-0 min-w-0 flex-1 overflow-hidden">
+      <main className="relative z-10 min-h-0 min-w-0 flex-1 overflow-hidden bg-[#07080b]">
         <VideoConference />
         <StartAudio
           label="Clique para ativar o áudio"
-          className="absolute left-1/2 top-4 z-30 -translate-x-1/2 rounded-xl border border-amber-400/20 bg-amber-500/15 px-3 py-2 text-xs font-bold text-amber-100 shadow-xl backdrop-blur-xl transition hover:bg-amber-500/25"
+          className="absolute left-1/2 top-4 z-30 -translate-x-1/2 rounded-lg border border-amber-400/20 bg-amber-500/15 px-3 py-2 text-xs font-bold text-amber-100 shadow-xl backdrop-blur-xl transition hover:bg-amber-500/25"
         />
         {connectionState === "connecting" && (
           <div className="absolute inset-0 z-40 flex items-center justify-center bg-[#090a0d]/95 backdrop-blur-sm">
             <div className="flex flex-col items-center text-center">
-              <div className="relative flex h-16 w-16 items-center justify-center rounded-3xl bg-indigo-500/10 ring-1 ring-indigo-400/20">
+              <div className="relative flex h-14 w-14 items-center justify-center rounded-xl bg-zinc-800 ring-1 ring-white/10">
                 <Loader2 className="h-7 w-7 animate-spin text-indigo-300" />
-                <span className="absolute inset-0 animate-ping rounded-3xl border border-indigo-400/20" />
               </div>
               <p className="mt-5 text-sm font-bold text-zinc-100">Entrando no canal</p>
               <p className="mt-1 text-xs text-zinc-500">{channelName}</p>
@@ -838,7 +850,7 @@ function VoiceConference({
       </main>
 
       {isSettingsOpen && (
-        <div className="absolute bottom-24 left-1/2 z-50 w-[min(760px,calc(100%_-_24px))] -translate-x-1/2 overflow-hidden rounded-3xl border border-white/10 bg-[#101116]/95 shadow-2xl shadow-black/60 backdrop-blur-2xl">
+        <div className="absolute bottom-24 left-1/2 z-50 w-[min(760px,calc(100%_-_24px))] -translate-x-1/2 overflow-hidden rounded-xl border border-white/10 bg-[#16171b]/98 shadow-2xl shadow-black/50 backdrop-blur-2xl">
           <div className="flex items-center justify-between border-b border-white/[0.07] px-5 py-4">
             <div>
               <h2 className="text-sm font-bold text-white">Voz e transmissão</h2>
@@ -849,7 +861,7 @@ function VoiceConference({
             <button
               type="button"
               onClick={() => setIsSettingsOpen(false)}
-              className="flex h-8 w-8 items-center justify-center rounded-xl text-zinc-500 transition hover:bg-white/[0.07] hover:text-white"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-white/[0.07] hover:text-white"
               aria-label="Fechar configurações"
             >
               <X className="h-4 w-4" />
@@ -858,11 +870,11 @@ function VoiceConference({
 
           <div className="max-h-[min(64vh,560px)] overflow-y-auto p-4 sm:p-5">
             <div className="grid gap-4 lg:grid-cols-2">
-              <section className="rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4">
+              <section className="rounded-lg border border-white/[0.08] bg-black/15 p-4">
                 <div className="mb-4 flex items-center gap-2">
                   <Camera className="h-4 w-4 text-indigo-300" />
                   <h3 className="text-xs font-bold text-zinc-100">Webcam</h3>
-                  <span className="ml-auto rounded-full bg-indigo-500/10 px-2 py-0.5 text-[9px] font-bold text-indigo-300">
+                  <span className="ml-auto rounded-md bg-indigo-500/10 px-2 py-0.5 text-[9px] font-bold text-indigo-300">
                     até 1080p
                   </span>
                 </div>
@@ -898,16 +910,16 @@ function VoiceConference({
                     ))}
                   </SelectField>
                 </div>
-                <div className="mt-3 rounded-xl bg-black/20 px-3 py-2 text-[10px] leading-4 text-zinc-500">
+                <div className="mt-3 rounded-lg bg-black/20 px-3 py-2 text-[10px] leading-4 text-zinc-500">
                   Perfil estimado: até {Math.ceil(getMaxBitrate(settings.cameraResolution, settings.cameraFps) / 1_000_000)} Mb/s. O LiveKit adapta a qualidade à conexão.
                 </div>
               </section>
 
-              <section className="rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4">
+              <section className="rounded-lg border border-white/[0.08] bg-black/15 p-4">
                 <div className="mb-4 flex items-center gap-2">
                   <Monitor className="h-4 w-4 text-emerald-300" />
                   <h3 className="text-xs font-bold text-zinc-100">Compartilhar tela</h3>
-                  <span className="ml-auto rounded-full bg-emerald-500/10 px-2 py-0.5 text-[9px] font-bold text-emerald-300">
+                  <span className="ml-auto rounded-md bg-emerald-500/10 px-2 py-0.5 text-[9px] font-bold text-emerald-300">
                     até 1080p
                   </span>
                 </div>
@@ -959,7 +971,7 @@ function VoiceConference({
               </section>
             </div>
 
-            <section className="mt-4 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4">
+            <section className="mt-4 rounded-lg border border-white/[0.08] bg-black/15 p-4">
               <div className="mb-4 flex items-center gap-2">
                 <Headphones className="h-4 w-4 text-sky-300" />
                 <h3 className="text-xs font-bold text-zinc-100">Dispositivos e áudio</h3>
@@ -1018,7 +1030,7 @@ function VoiceConference({
               </div>
             </section>
 
-            <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-indigo-400/10 bg-indigo-500/[0.06] p-3 sm:flex-row sm:items-center">
+            <div className="mt-4 flex flex-col gap-3 rounded-lg border border-white/[0.08] bg-black/15 p-3 sm:flex-row sm:items-center">
               <div className="flex min-w-0 flex-1 gap-2.5">
                 <Shield className="mt-0.5 h-4 w-4 shrink-0 text-indigo-300" />
                 <p className="text-[10px] leading-4 text-zinc-400">
@@ -1066,8 +1078,8 @@ function VoiceConference({
         </div>
       )}
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-40 flex justify-center bg-gradient-to-t from-black/75 via-black/35 to-transparent px-3 pb-4 pt-16">
-        <div className="pointer-events-auto flex max-w-full items-center gap-1.5 overflow-x-auto rounded-3xl border border-white/10 bg-[#121318]/90 p-2 shadow-2xl shadow-black/50 backdrop-blur-2xl [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-40 flex justify-center border-t border-white/[0.06] bg-[#111217]/70 px-3 py-3 backdrop-blur-2xl">
+        <div className="pointer-events-auto flex max-w-full items-center gap-1.5 overflow-x-auto rounded-[24px] border border-white/10 bg-white/[0.08] p-2 shadow-2xl shadow-black/40 backdrop-blur-2xl [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <MediaControlButton
             label={isMicrophoneEnabled ? "Silenciar" : "Microfone"}
             active={isMicrophoneEnabled}
@@ -1149,8 +1161,8 @@ function VoiceConference({
           overflow: hidden;
           border: 1px solid rgba(255, 255, 255, 0.08);
           border-radius: 20px;
-          background: linear-gradient(145deg, #17191f, #101116);
-          box-shadow: 0 18px 45px rgba(0, 0, 0, 0.22);
+          background: linear-gradient(145deg, #191b21, #0f1014);
+          box-shadow: 0 22px 60px rgba(0, 0, 0, 0.34);
           transition: border-color 180ms ease, box-shadow 180ms ease,
             transform 180ms ease;
         }

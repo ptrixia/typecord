@@ -14,7 +14,9 @@ import type {
   DirectConversationSummary,
   DirectUser,
 } from "@/types/direct-messages";
+import { UnreadBadge } from "@/components/app/ActivityProvider";
 import DirectAvatar from "./DirectAvatar";
+import UserProfileSideBar from "../UserProfileSideBar";
 
 type Props = {
   conversations: DirectConversationSummary[];
@@ -27,7 +29,6 @@ type Props = {
   onNewMessage: () => void;
   onCreateGroup: () => void;
   onAddFriend: () => void;
-  onOpenProfile: (user: DirectUser) => void;
   onCloseConversation: (conversation: DirectConversationSummary) => void;
 };
 
@@ -59,7 +60,6 @@ export default function DirectMessagesList({
   onNewMessage,
   onCreateGroup,
   onAddFriend,
-  onOpenProfile,
   onCloseConversation,
 }: Props) {
   const [query, setQuery] = useState("");
@@ -73,8 +73,6 @@ export default function DirectMessagesList({
       conversation.displayName.toLowerCase().includes(normalized),
     );
   }, [conversations, query]);
-
-  const currentName = currentUser.globalName || currentUser.username;
 
   return (
     <aside className="flex h-full w-[260px] shrink-0 flex-col border-r border-zinc-200 bg-zinc-100 text-zinc-950 dark:border-zinc-800 dark:bg-zinc-900 dark:text-white">
@@ -206,6 +204,7 @@ export default function DirectMessagesList({
                     <span className="truncate text-sm font-semibold text-zinc-800 dark:text-zinc-100">
                       {conversation.displayName}
                     </span>
+                    <UnreadBadge scopeId={conversation.id} />
                     {last && (
                       <span className="ml-auto shrink-0 text-[9px] text-zinc-400 group-hover:hidden">
                         {formatTime(last.createdAt)}
@@ -244,27 +243,7 @@ export default function DirectMessagesList({
         )}
       </div>
 
-      <div className="border-t border-zinc-200 bg-zinc-200/60 p-2 dark:border-zinc-800 dark:bg-zinc-950/50">
-        <button
-          type="button"
-          onClick={() => onOpenProfile(currentUser)}
-          className="flex w-full items-center gap-2 rounded-md p-1.5 text-left hover:bg-zinc-300/70 dark:hover:bg-zinc-800"
-        >
-          <DirectAvatar
-            name={currentName}
-            avatarUrl={currentUser.avatarUrl}
-            status={currentUser.status}
-            showStatus
-            size="sm"
-          />
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-xs font-bold">{currentName}</div>
-            <div className="truncate text-[10px] text-zinc-500">
-              @{currentUser.username}
-            </div>
-          </div>
-        </button>
-      </div>
+      <UserProfileSideBar user={currentUser}/>
     </aside>
   );
 }

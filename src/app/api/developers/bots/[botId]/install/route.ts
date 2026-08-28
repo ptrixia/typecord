@@ -1,390 +1,162 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 
+import { getEffectiveChannelPermissions } from "@/lib/channel-permissions";
 import { getCurrentUser } from "@/lib/current-user";
-import { db as prisma } from "@/lib/db";
+import { db } from "@/lib/db";
+import { Permissions, hasPermission } from "@/lib/permissions";
+import { enforceRateLimit, isSameOriginRequest, sameOriginError } from "@/lib/request-security";
 
-import {
-  Permissions,
-  hasPermission,
-} from "@/lib/permissions";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const schema = z.object({
+  guildId: z.string().trim().min(1).max(128),
+});
 
 export async function POST(
   request: Request,
-  context: {
-    params: Promise<{
-      botId: string;
-    }>;
-  },
+  context: { params: Promise<{ botId: string }> },
 ) {
   try {
-    // --------------------------------------------------
-    // 1. Usuário autenticado
-    // --------------------------------------------------
+    if (!isSameOriginRequest(request)) return sameOriginError();
 
-    const currentUser =
-      await getCurrentUser();
-
-    const currentUserId =
-      currentUser?.id;
-
-    if (!currentUserId) {
-      return NextResponse.json(
-        {
-          message: "Não autenticado.",
-        },
-        {
-          status: 401,
-        },
-      );
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json({ message: "Não autenticado." }, { status: 401 });
     }
 
-    // --------------------------------------------------
-    // 2. Parâmetros
-    // --------------------------------------------------
+    const limited = await enforceRateLimit(request, "bot-install", 30, 60, user.id);
+    if (limited) return limited;
 
-    const { botId } =
-      await context.params;
-
-    const body =
-      await request.json();
-
-    const guildId =
-      body?.guildId;
-
-    if (
-      typeof guildId !== "string" ||
-      !guildId
-    ) {
-      return NextResponse.json(
-        {
-          message:
-            "guildId é obrigatório.",
-        },
-        {
-          status: 400,
-        },
-      );
+    const parsed = schema.safeParse(await request.json().catch(() => null));
+    if (!parsed.success) {
+      return NextResponse.json({ message: "guildId é obrigatório." }, { status: 400 });
     }
 
-    // --------------------------------------------------
-    // 3. Procurar o BOT
-    // --------------------------------------------------
-    //
-    // IMPORTANTE:
-    //
-    // userId  = usuário especial do bot
-    // ownerId = usuário humano dono do bot
-    //
-    // --------------------------------------------------
-
-    const bot =
-      await prisma.bot.findUnique({
-        where: {
-          id: botId,
-        },
-
-        select: {
-          id: true,
-
-          userId: true,
-
-          ownerId: true,
-
-          disabled: true,
-
-          user: {
-            select: {
-              id: true,
-              username: true,
-              globalName: true,
-              avatarUrl: true,
-              bannerUrl: true,
-            },
+    const { botId } = await context.params;
+    const bot = await db.bot.findFirst({
+      where: { id: botId, ownerId: user.id },
+      select: {
+        id: true,
+        userId: true,
+        ownerId: true,
+        disabled: true,
+        user: {
+          select: {
+            username: true,
+            globalName: true,
+            avatarUrl: true,
+            bannerUrl: true,
           },
         },
-      });
+      },
+    });
 
     if (!bot) {
-      return NextResponse.json(
-        {
-          message:
-            "Bot não encontrado.",
-        },
-        {
-          status: 404,
-        },
-      );
+      return NextResponse.json({ message: "Bot não encontrado." }, { status: 404 });
     }
-
-    // --------------------------------------------------
-    // 4. Verificar proprietário do bot
-    // --------------------------------------------------
-    //
-    // NÃO comparar:
-    //
-    // bot.userId === currentUserId
-    //
-    // porque bot.userId é o usuário especial.
-    //
-    // O correto é:
-    //
-    // bot.ownerId === currentUserId
-    //
-    // --------------------------------------------------
-
-    if (
-      bot.ownerId !== currentUserId
-    ) {
-      console.log(
-        "[BOT_INSTALL] Dono inválido",
-        {
-          currentUserId,
-          botOwnerId: bot.ownerId,
-          botUserId: bot.userId,
-          botId: bot.id,
-        },
-      );
-
-      return NextResponse.json(
-        {
-          message:
-            "Você não pode instalar este bot.",
-        },
-        {
-          status: 403,
-        },
-      );
-    }
-
-    // --------------------------------------------------
-    // 5. Verificar se o bot está desativado
-    // --------------------------------------------------
 
     if (bot.disabled) {
-      return NextResponse.json(
-        {
-          message:
-            "Este bot está desativado.",
-        },
-        {
-          status: 403,
-        },
-      );
+      return NextResponse.json({ message: "Este bot está desativado." }, { status: 403 });
     }
 
-    // --------------------------------------------------
-    // 6. Procurar a guild
-    // --------------------------------------------------
-
-    const guild =
-      await prisma.guild.findUnique({
-        where: {
-          id: guildId,
-        },
-
-        select: {
-          id: true,
-          name: true,
-          iconUrl: true,
-          ownerId: true,
-        },
-      });
+    const guild = await db.guild.findUnique({
+      where: { id: parsed.data.guildId },
+      select: { id: true, name: true, iconUrl: true, ownerId: true },
+    });
 
     if (!guild) {
-      return NextResponse.json(
-        {
-          message:
-            "Servidor não encontrado.",
-        },
-        {
-          status: 404,
-        },
-      );
+      return NextResponse.json({ message: "Servidor não encontrado." }, { status: 404 });
     }
 
-    // --------------------------------------------------
-    // 7. Verificar se o usuário é membro
-    // --------------------------------------------------
+    const membership = await db.member.findUnique({
+      where: {
+        userId_guildId: {
+          userId: user.id,
+          guildId: guild.id,
+        },
+      },
+      select: { id: true },
+    });
 
-    const member =
-      await prisma.member.findUnique({
-        where: {
-          userId_guildId: {
-            userId: currentUserId,
-            guildId: guild.id,
-          },
-        },
-
-        include: {
-          roles: {
-            select: {
-              permissions: true,
-            },
-          },
-        },
-      });
-
-    if (!member) {
-      return NextResponse.json(
-        {
-          message:
-            "Você não é membro deste servidor.",
-        },
-        {
-          status: 403,
-        },
-      );
+    if (!membership) {
+      return NextResponse.json({ message: "Você não é membro deste servidor." }, { status: 403 });
     }
 
-    // --------------------------------------------------
-    // 8. Verificar permissões
-    // --------------------------------------------------
-
-    const isGuildOwner =
-      guild.ownerId ===
-      currentUserId;
-
-    let permissions = 0n;
-
-    for (const role of member.roles) {
-      try {
-        permissions |= BigInt(
-          role.permissions ?? "0",
-        );
-      } catch {
-        // Ignora bitfield inválido.
-      }
-    }
-
-    const isAdministrator =
-      hasPermission(
-        permissions,
-        Permissions.ADMINISTRATOR,
-      );
-
-    const canManageGuild =
-      hasPermission(
-        permissions,
-        Permissions.MANAGE_GUILD,
-      );
-
+    const permissions = await getEffectiveChannelPermissions(guild.id, user.id);
     const canInstall =
-      isGuildOwner ||
-      isAdministrator ||
-      canManageGuild;
+      guild.ownerId === user.id ||
+      hasPermission(permissions, Permissions.ADMINISTRATOR) ||
+      hasPermission(permissions, Permissions.MANAGE_GUILD);
 
     if (!canInstall) {
       return NextResponse.json(
-        {
-          message:
-            "Você não possui permissão para adicionar bots neste servidor.",
-        },
-        {
-          status: 403,
-        },
+        { message: "Você não possui permissão para adicionar bots neste servidor." },
+        { status: 403 },
       );
     }
 
-    // --------------------------------------------------
-    // 9. Verificar se o bot já está na guild
-    // --------------------------------------------------
-
-    const existingMember =
-      await prisma.member.findUnique({
-        where: {
-          userId_guildId: {
-            userId: bot.userId,
-            guildId: guild.id,
-          },
-        },
-
-        select: {
-          id: true,
-        },
-      });
-
-    if (existingMember) {
-      return NextResponse.json(
-        {
-          message:
-            "Este bot já está neste servidor.",
-        },
-        {
-          status: 409,
-        },
-      );
-    }
-
-    // --------------------------------------------------
-    // 10. Adicionar o bot à guild
-    // --------------------------------------------------
-
-    const botMember =
-      await prisma.member.create({
-        data: {
+    const existing = await db.member.findUnique({
+      where: {
+        userId_guildId: {
           userId: bot.userId,
           guildId: guild.id,
         },
-      });
+      },
+      select: { id: true },
+    });
 
-    // --------------------------------------------------
-    // 11. Resposta
-    // --------------------------------------------------
+    if (existing) {
+      return NextResponse.json({ message: "Este bot já está neste servidor." }, { status: 409 });
+    }
+
+    const everyoneRole = await db.role.findFirst({
+      where: { guildId: guild.id, isDefault: true },
+      select: { id: true },
+    });
+
+    const botMember = await db.member.create({
+      data: {
+        userId: bot.userId,
+        guildId: guild.id,
+        ...(everyoneRole
+          ? {
+              roles: {
+                connect: { id: everyoneRole.id },
+              },
+            }
+          : {}),
+      },
+      select: { id: true, userId: true, guildId: true },
+    });
 
     return NextResponse.json(
       {
         success: true,
-
         bot: {
           id: bot.id,
-
           userId: bot.userId,
-
           ownerId: bot.ownerId,
-
-          username:
-            bot.user.username,
-
-          globalName:
-            bot.user.globalName,
-
-          avatarUrl:
-            bot.user.avatarUrl,
-
-          bannerUrl:
-            bot.user.bannerUrl,
+          username: bot.user.username,
+          globalName: bot.user.globalName,
+          avatarUrl: bot.user.avatarUrl,
+          bannerUrl: bot.user.bannerUrl,
         },
-
         guild: {
           id: guild.id,
           name: guild.name,
           iconUrl: guild.iconUrl,
         },
-
-        member: {
-          id: botMember.id,
-          userId: botMember.userId,
-          guildId: botMember.guildId,
-        },
+        member: botMember,
       },
-      {
-        status: 201,
-      },
+      { status: 201, headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
-    console.error(
-      "[BOT_INSTALL]",
-      error,
-    );
-
+    console.error("[BOT_INSTALL]", error);
     return NextResponse.json(
-      {
-        message:
-          "Erro interno ao adicionar o bot.",
-      },
-      {
-        status: 500,
-      },
+      { message: "Erro interno ao adicionar o bot." },
+      { status: 500 },
     );
   }
 }

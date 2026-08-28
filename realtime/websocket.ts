@@ -10,11 +10,7 @@ import { jwtVerify } from "jose";
 
 import { db } from "@/lib/db";
 
-import {
-  Permissions,
-  hasPermission,
-  normalizePermissions,
-} from "@/lib/permissions";
+import { canUserAccessChannel } from "@/lib/channel-permissions";
 
 import {
   GATEWAY_PATH,
@@ -444,82 +440,16 @@ async function resolveChannelAccess(
   userId: string,
   channelId: string,
 ) {
-  const channel =
-    await db.channel.findUnique({
-      where: {
-        id: channelId,
-      },
-
-      select: {
-        id: true,
-        guildId: true,
-      },
-    });
+  const channel = await db.channel.findUnique({
+    where: { id: channelId },
+    select: { id: true, guildId: true },
+  });
 
   if (!channel) {
     return null;
   }
 
-  const guild =
-    await db.guild.findUnique({
-      where: {
-        id: channel.guildId,
-      },
-
-      select: {
-        ownerId: true,
-      },
-    });
-
-  if (!guild) {
-    return null;
-  }
-
-  if (guild.ownerId === userId) {
-    return {
-      channelId: channel.id,
-      guildId: channel.guildId,
-    };
-  }
-
-  const member =
-    await db.member.findUnique({
-      where: {
-        userId_guildId: {
-          userId,
-          guildId:
-            channel.guildId,
-        },
-      },
-
-      select: {
-        roles: {
-          select: {
-            permissions: true,
-          },
-        },
-      },
-    });
-
-  if (!member) {
-    return null;
-  }
-
-  let permissions = 0n;
-
-  for (const role of member.roles) {
-    permissions |=
-      normalizePermissions(
-        role.permissions,
-      );
-  }
-
-  if (
-    !hasPermission(
-      permissions,
-      Permissions.VIEW_CHANNEL,
-    )
-  ) {
+  if (!(await canUserAccessChannel(userId, channelId))) {
     return null;
   }
 
