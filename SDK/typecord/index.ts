@@ -69,6 +69,29 @@ export const Events = {
 export type GatewayEvent = (typeof GatewayEvents)[keyof typeof GatewayEvents];
 export type ClientEvent = (typeof Events)[keyof typeof Events];
 
+export type RichPresenceType =
+  | "PLAYING"
+  | "LISTENING"
+  | "WATCHING"
+  | "STREAMING"
+  | "COMPETING"
+  | "CUSTOM";
+
+export interface RichPresenceOptions {
+  type?: RichPresenceType;
+  name?: string;
+  details?: string | null;
+  state?: string | null;
+  url?: string | null;
+  startedAt?: string | null;
+  endsAt?: string | null;
+  expiresAt?: string | null;
+  largeImageUrl?: string | null;
+  smallImageUrl?: string | null;
+  largeImageText?: string | null;
+  smallImageText?: string | null;
+}
+
 export type GatewayAck<T = unknown> =
   | { ok: true; data?: T }
   | { ok: false; code: string; message: string };
@@ -218,6 +241,10 @@ type GatewayServerToClientEvents = {
 
 type GatewayClientToServerEvents = {
   "gateway:ping": (callback: (response: GatewayAck<{ serverTime: string }>) => void) => void;
+  "gateway:set-rich-presence": (
+    payload: RichPresenceOptions | null,
+    callback: (response: GatewayAck<{ enabled: boolean }>) => void,
+  ) => void;
 };
 
 export type EventMap = {
@@ -657,6 +684,7 @@ export class TypecordClient extends TypedEmitter<EventMap> {
   private sessionPromise: Promise<GatewaySessionResponse> | null = null;
   private seenEvents = new Map<string, number>();
   private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private desiredRichPresence: RichPresenceOptions | null = null;
 
   constructor(options: TypecordClientOptions = {}) {
     super();
@@ -731,6 +759,21 @@ export class TypecordClient extends TypedEmitter<EventMap> {
 
   emitDebug(message: string) {
     this.emit(Events.Debug, message);
+  }
+
+  /**
+   * Define a presenca publica do bot. A presenca e reaplicada automaticamente
+   * quando o SDK reconecta ao Gateway.
+   */
+  async setRichPresence(presence: RichPresenceOptions): Promise<{ enabled: boolean }> {
+    this.desiredRichPresence = { ...presence };
+    return this.sendRichPresence(this.desiredRichPresence);
+  }
+
+  /** Remove a presenca publica atual do bot. */
+  async clearRichPresence(): Promise<{ enabled: boolean }> {
+    this.desiredRichPresence = null;
+    return this.sendRichPresence(null);
   }
 
   private connectSocket(url: string) {
@@ -853,6 +896,29 @@ export class TypecordClient extends TypedEmitter<EventMap> {
       user: this.user ?? normalizeUser({ id: payload.userId ?? "", username: "bot" }),
       guilds: this.guilds,
       raw: payload,
+    });
+
+    if (this.desiredRichPresence) {
+      void this.sendRichPresence(this.desiredRichPresence).catch((error) => {
+        this.emit(Events.Error, toError(error));
+      });
+    }
+  }
+
+  private sendRichPresence(presence: RichPresenceOptions | null) {
+    if (!this.socket || !this.socket.connected || this.ws.status !== "ready") {
+      return Promise.reject(new Error("O Gateway ainda nao esta pronto para atualizar a presenca."));
+    }
+
+    return new Promise<{ enabled: boolean }>((resolve, reject) => {
+      this.socket!.emit("gateway:set-rich-presence", presence, (response) => {
+        if (response.ok) {
+          resolve(response.data ?? { enabled: Boolean(presence) });
+          return;
+        }
+
+        reject(new Error(`${response.code}: ${response.message}`));
+      });
     });
   }
 

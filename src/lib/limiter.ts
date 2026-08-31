@@ -20,8 +20,6 @@ export async function limiter(
     options.windowSeconds
   );
 
-  console.log(result)
-
   if (result.success) {
     return null;
   }

@@ -16,10 +16,11 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const items = await getMessages(channelId);
+    const cursor = request.nextUrl.searchParams.get("cursor")?.trim() || undefined;
+    const result = await getMessages(channelId, cursor);
 
     return NextResponse.json(
-      { success: true, items, nextCursor: null },
+      { success: true, ...result },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {

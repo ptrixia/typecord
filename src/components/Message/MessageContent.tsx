@@ -9,6 +9,7 @@ import MessageAttachment, {
 import MessageEmbed, {
   MessageEmbedData,
 } from "./MessageEmbed";
+import { getFileUrl } from "@/lib/validations";
 
 interface MessageContentProps {
   content?: string | null;
@@ -103,11 +104,7 @@ export default function MessageContent({
           <audio
             controls
             preload="metadata"
-            src={
-              voiceMessage.url.startsWith("/api/files")
-                ? voiceMessage.url
-                : `/api/files?key=${encodeURIComponent(voiceMessage.url)}`
-            }
+            src={getFileUrl(voiceMessage.url)}
             className="w-full"
           />
         </div>

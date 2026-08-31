@@ -720,6 +720,9 @@ io.on("connection", async (socket) => {
     `[GATEWAY] ${kind} ${user.id} conectado ${socket.id}`,
   );
 
+  await stateRedis.incr("typecord:metrics:websocket:active");
+  await stateRedis.expire("typecord:metrics:websocket:active", 180);
+
   const rooms = [
     userRoom(user.id),
     ...guildIds.map(
@@ -821,6 +824,13 @@ io.on("connection", async (socket) => {
         );
       });
     }, PRESENCE_HEARTBEAT_MS);
+
+  socket.on("disconnect", () => {
+    clearInterval(heartbeat);
+    void stateRedis.decr("typecord:metrics:websocket:active").catch((error) => {
+      console.error("[GATEWAY_METRICS_DISCONNECT]", error);
+    });
+  });
 
   socket.on(
     "gateway:subscribe-channel",
@@ -1075,6 +1085,27 @@ io.on("connection", async (socket) => {
       });
     },
   );
+
+  socket.on("gateway:set-rich-presence", async (payload, callback) => {
+    try {
+      if (payload === null) {
+        await db.richPresence.deleteMany({ where: { userId: user.id } });
+        await broadcastToGuilds(guildIds, "PRESENCE_UPDATE", { userId: user.id, richPresence: null, updatedAt: new Date().toISOString() });
+        callback({ ok: true, data: { enabled: false } });
+        return;
+      }
+      const name = typeof payload?.name === "string" ? payload.name.trim().replace(/\s+/g, " ").slice(0, 128) : "";
+      if (!name) { callback({ ok: false, code: "INVALID_PRESENCE", message: "O nome da atividade é obrigatório." }); return; }
+      const dates = { startedAt: payload.startedAt ? new Date(payload.startedAt) : null, endsAt: payload.endsAt ? new Date(payload.endsAt) : null, expiresAt: payload.expiresAt ? new Date(payload.expiresAt) : null };
+      if (Object.values(dates).some((date) => date && Number.isNaN(date.getTime()))) { callback({ ok: false, code: "INVALID_PRESENCE", message: "Data da presença inválida." }); return; }
+      const allowedTypes = new Set(["PLAYING", "LISTENING", "WATCHING", "STREAMING", "COMPETING", "CUSTOM"]);
+      if (payload.type && !allowedTypes.has(payload.type)) { callback({ ok: false, code: "INVALID_PRESENCE", message: "Tipo de presença inválido." }); return; }
+      const presenceData = { type: payload.type ?? "CUSTOM", name, details: payload.details?.trim().slice(0, 128) || null, state: payload.state?.trim().slice(0, 128) || null, url: payload.url?.trim().slice(0, 2048) || null, largeImageUrl: payload.largeImageUrl?.trim().slice(0, 2048) || null, smallImageUrl: payload.smallImageUrl?.trim().slice(0, 2048) || null, largeImageText: payload.largeImageText?.trim().slice(0, 128) || null, smallImageText: payload.smallImageText?.trim().slice(0, 128) || null, ...dates };
+      const presence = await db.richPresence.upsert({ where: { userId: user.id }, create: { userId: user.id, ...presenceData }, update: presenceData });
+      await broadcastToGuilds(guildIds, "PRESENCE_UPDATE", { userId: user.id, richPresence: { type: presence.type, name: presence.name, details: presence.details, state: presence.state, url: presence.url, largeImageUrl: presence.largeImageUrl, smallImageUrl: presence.smallImageUrl, largeImageText: presence.largeImageText, smallImageText: presence.smallImageText, startedAt: presence.startedAt?.toISOString() ?? null, endsAt: presence.endsAt?.toISOString() ?? null, expiresAt: presence.expiresAt?.toISOString() ?? null }, updatedAt: new Date().toISOString() });
+      callback({ ok: true, data: { enabled: true } });
+    } catch (error) { console.error("[RICH_PRESENCE_GATEWAY_ERROR]", error); callback({ ok: false, code: "INTERNAL_ERROR", message: "Não foi possível atualizar a Rich Presence." }); }
+  });
 
   socket.on(
     "disconnect",

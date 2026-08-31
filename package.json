@@ -5,11 +5,16 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
     "gateway:dev": "tsx watch realtime/websocket.ts",
     "gateway:start": "tsx realtime/websocket.ts",
+    "worker:dev": "tsx watch src/workers/index.ts",
+    "worker:start": "tsx src/workers/index.ts",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "tsx --test"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.3",

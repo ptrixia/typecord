@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import {
   MessageSquarePlus,
+  FolderPlus,
+  Star,
   Search,
   UserPlus,
   Users,
@@ -12,9 +14,11 @@ import {
 
 import type {
   DirectConversationSummary,
+  DirectConversationFolder,
   DirectUser,
 } from "@/types/direct-messages";
 import { UnreadBadge } from "@/components/app/ActivityProvider";
+import { usePreferences } from "@/components/app/PreferencesProvider";
 import DirectAvatar from "./DirectAvatar";
 import UserProfileSideBar from "../UserProfileSideBar";
 
@@ -30,6 +34,10 @@ type Props = {
   onCreateGroup: () => void;
   onAddFriend: () => void;
   onCloseConversation: (conversation: DirectConversationSummary) => void;
+  folders: DirectConversationFolder[];
+  onToggleFavorite: (conversation: DirectConversationSummary) => void;
+  onCreateFolder: () => void;
+  onMoveConversation: (conversation: DirectConversationSummary, folderId: string | null) => void;
 };
 
 function formatTime(value: string) {
@@ -61,18 +69,25 @@ export default function DirectMessagesList({
   onCreateGroup,
   onAddFriend,
   onCloseConversation,
+  folders,
+  onToggleFavorite,
+  onCreateFolder,
+  onMoveConversation,
 }: Props) {
+  const { preferences } = usePreferences();
   const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<string>("all");
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
 
-    if (!normalized) return conversations;
+    const organized = filter === "favorites" ? conversations.filter((conversation) => conversation.isFavorite) : filter === "all" ? conversations : conversations.filter((conversation) => conversation.folder?.id === filter);
+    if (!normalized) return organized;
 
-    return conversations.filter((conversation) =>
+    return organized.filter((conversation) =>
       conversation.displayName.toLowerCase().includes(normalized),
     );
-  }, [conversations, query]);
+  }, [conversations, filter, query]);
 
   return (
     <aside className="flex h-full w-[260px] shrink-0 flex-col border-r border-zinc-200 bg-zinc-100 text-zinc-950 dark:border-zinc-800 dark:bg-zinc-900 dark:text-white">
@@ -154,6 +169,13 @@ export default function DirectMessagesList({
         )}
       </div>
 
+      <div className="flex items-center gap-1 overflow-x-auto px-2 pb-2">
+        <button type="button" onClick={() => setFilter("all")} className={`whitespace-nowrap rounded-md px-2 py-1 text-[10px] font-bold ${filter === "all" ? "bg-indigo-600 text-white" : "bg-white text-zinc-500 dark:bg-zinc-800"}`}>Todas</button>
+        <button type="button" onClick={() => setFilter("favorites")} className={`inline-flex items-center gap-1 whitespace-nowrap rounded-md px-2 py-1 text-[10px] font-bold ${filter === "favorites" ? "bg-indigo-600 text-white" : "bg-white text-zinc-500 dark:bg-zinc-800"}`}><Star className="h-3 w-3" /> Favoritas</button>
+        {folders.map((folder) => <button type="button" key={folder.id} onClick={() => setFilter(folder.id)} className={`whitespace-nowrap rounded-md px-2 py-1 text-[10px] font-bold ${filter === folder.id ? "bg-indigo-600 text-white" : "bg-white text-zinc-500 dark:bg-zinc-800"}`}>{folder.name}</button>)}
+        <button type="button" title="Criar pasta" onClick={onCreateFolder} className="rounded-md bg-white p-1 text-zinc-500 dark:bg-zinc-800"><FolderPlus className="h-3 w-3" /></button>
+      </div>
+
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         {filtered.length === 0 ? (
           <div className="px-3 py-8 text-center text-xs text-zinc-500">
@@ -175,51 +197,51 @@ export default function DirectMessagesList({
                 : "Comece uma conversa";
 
             return (
-              <button
+              <div
                 key={conversation.id}
-                type="button"
-                onClick={() => onSelect(conversation.id)}
                 className={`group relative mb-0.5 flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left transition ${
                   selected
                     ? "bg-zinc-200 dark:bg-zinc-800"
                     : "hover:bg-zinc-200/70 dark:hover:bg-zinc-800/70"
                 }`}
               >
-                <DirectAvatar
-                  name={conversation.displayName}
-                  avatarUrl={conversation.displayAvatarUrl}
-                  status={
-                    conversation.type === "DM"
-                      ? conversation.members.find(
-                          (member) => member.id !== currentUser.id,
-                        )?.status
-                      : undefined
-                  }
-                  showStatus={conversation.type === "DM"}
-                  size="md"
-                />
+                <button type="button" onClick={() => onSelect(conversation.id)} className="flex min-w-0 flex-1 items-center gap-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
+                  <DirectAvatar
+                    name={conversation.displayName}
+                    avatarUrl={conversation.displayAvatarUrl}
+                    status={
+                      conversation.type === "DM"
+                        ? conversation.members.find(
+                            (member) => member.id !== currentUser.id,
+                          )?.status
+                        : undefined
+                    }
+                    showStatus={conversation.type === "DM" && preferences.showOnlineStatus}
+                    size="md"
+                  />
 
-                <div className="min-w-0 flex-1">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="truncate text-sm font-semibold text-zinc-800 dark:text-zinc-100">
-                      {conversation.displayName}
-                    </span>
-                    <UnreadBadge scopeId={conversation.id} />
-                    {last && (
-                      <span className="ml-auto shrink-0 text-[9px] text-zinc-400 group-hover:hidden">
-                        {formatTime(last.createdAt)}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="truncate text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+                        {conversation.displayName}
                       </span>
-                    )}
+                      {conversation.isFavorite && <Star className="h-3 w-3 shrink-0 fill-amber-400 text-amber-400" />}
+                      <UnreadBadge scopeId={conversation.id} />
+                      {last && (
+                        <span className="ml-auto shrink-0 text-[9px] text-zinc-400 group-hover:hidden">
+                          {formatTime(last.createdAt)}
+                        </span>
+                      )}
+                    </div>
+                    <div className="truncate text-[11px] text-zinc-500">
+                      {subtitle}
+                    </div>
                   </div>
-                  <div className="truncate text-[11px] text-zinc-500">
-                    {subtitle}
-                  </div>
-                </div>
+                </button>
 
                 {conversation.type === "DM" && (
-                  <span
-                    role="button"
-                    tabIndex={0}
+                  <button
+                    type="button"
                     title="Fechar conversa"
                     onClick={(event) => {
                       event.stopPropagation();
@@ -235,9 +257,13 @@ export default function DirectMessagesList({
                     className="absolute right-2 top-2 hidden rounded p-1 text-zinc-500 hover:bg-zinc-300 hover:text-zinc-900 group-hover:flex dark:hover:bg-zinc-700 dark:hover:text-white"
                   >
                     <X className="h-3.5 w-3.5" />
-                  </span>
+                  </button>
                 )}
-              </button>
+                <span className="absolute right-2 bottom-2 hidden items-center gap-1 rounded bg-white/90 p-1 shadow-sm group-hover:flex dark:bg-zinc-800/90">
+                  <button type="button" title={conversation.isFavorite ? "Remover dos favoritos" : "Adicionar aos favoritos"} onClick={(event) => { event.stopPropagation(); onToggleFavorite(conversation); }} className="rounded p-1 hover:bg-zinc-200 dark:hover:bg-zinc-700"><Star className={`h-3 w-3 ${conversation.isFavorite ? "fill-amber-400 text-amber-400" : "text-zinc-500"}`} /></button>
+                  <select value={conversation.folder?.id ?? ""} title="Mover para pasta" onClick={(event) => event.stopPropagation()} onChange={(event) => { event.stopPropagation(); onMoveConversation(conversation, event.target.value || null); }} className="max-w-16 bg-transparent text-[9px] text-zinc-500 outline-none"><option value="">Sem pasta</option>{folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select>
+                </span>
+              </div>
             );
           })
         )}

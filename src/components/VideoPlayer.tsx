@@ -14,11 +14,13 @@ import {
 interface VideoPlayerProps {
   src: string;
   poster?: string;
+  mimeType?: string;
 }
 
 export default function VideoPlayer({
   src,
   poster,
+  mimeType,
 }: VideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -294,7 +296,6 @@ export default function VideoPlayer({
 
       <video
         ref={videoRef}
-        src={src}
         poster={poster}
         preload="metadata"
         playsInline
@@ -315,7 +316,9 @@ export default function VideoPlayer({
           object-contain
           select-none
         "
-      />
+      >
+        <source src={src} type={mimeType} />
+      </video>
 
       {isLoading && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">

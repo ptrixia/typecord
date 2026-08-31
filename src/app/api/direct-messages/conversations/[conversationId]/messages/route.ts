@@ -13,6 +13,7 @@ import { emitToUser } from "@/lib/realtime/emitter";
 import { enforceRateLimit, isSameOriginRequest, sameOriginError } from "@/lib/request-security";
 import { isOwnedUploadKey } from "@/lib/storage-access";
 import { storageObjectExists } from "@/lib/storage";
+import { isE2EEEnvelope } from "@/lib/e2ee-envelope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,9 +30,11 @@ const attachmentSchema = z.object({
 });
 
 const createMessageSchema = z.object({
-  content: z.string().max(8000).default(""),
+  // E2EE envelopes expand the plaintext with base64 and one wrapped key per device.
+  content: z.string().max(24000).default(""),
   replyToId: z.string().trim().min(1).max(128).nullable().optional(),
   attachments: z.array(attachmentSchema).max(10).default([]),
+  expiresAt: z.string().datetime().nullable().optional(),
 });
 
 function extractStorageKey(value: string) {
@@ -69,6 +72,30 @@ async function notifyParticipants(
       }),
     ),
   );
+}
+
+async function createDirectMessageNotifications(
+  conversationId: string,
+  authorId: string,
+  messageId: string,
+) {
+  const participants = await db.directConversationParticipant.findMany({
+    where: { conversationId, userId: { not: authorId } },
+    select: { userId: true },
+  });
+  await Promise.allSettled(participants.map(async ({ userId }) => {
+    const notification = await db.notification.create({
+      data: {
+        userId,
+        messageId,
+        type: "SYSTEM",
+        title: "Nova mensagem direta",
+        content: "Você recebeu uma nova mensagem direta.",
+        href: `/channels/@me/${conversationId}`,
+      },
+    });
+    await emitToUser(userId, "NOTIFICATION_CREATE", { notification });
+  }));
 }
 
 export async function GET(request: NextRequest, context: RouteContext) {
@@ -112,6 +139,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     const messages = await db.directMessage.findMany({
       where: {
         conversationId,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
         ...(before ? { createdAt: { lt: before } } : {}),
       },
       orderBy: { createdAt: "desc" },
@@ -222,7 +250,23 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
 
+    const expiresAt = parsed.data.expiresAt ? new Date(parsed.data.expiresAt) : null;
+    if (expiresAt && expiresAt <= new Date()) {
+      return NextResponse.json(
+        { success: false, message: "O prazo da mensagem temporária é inválido." },
+        { status: 400 },
+      );
+    }
+
     const content = parsed.data.content.trim();
+
+    if (content && !isE2EEEnvelope(content)) {
+      return NextResponse.json(
+        { success: false, message: "Esta conversa exige criptografia de ponta a ponta." },
+        { status: 422 },
+      );
+    }
+
     const attachments = [] as Array<{
       url: string;
       filename: string;
@@ -285,6 +329,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
           authorId: currentUser.id,
           content,
           replyToId,
+          expiresAt,
           attachments: { create: attachments },
         },
         include: directMessageInclude,
@@ -304,7 +349,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
     });
 
     const serialized = serializeDirectMessage(message, currentUser.id);
-    await notifyParticipants(conversationId, "MESSAGE_CREATE", { message: serialized });
+    await Promise.all([
+      notifyParticipants(conversationId, "MESSAGE_CREATE", { message: serialized }),
+      createDirectMessageNotifications(conversationId, currentUser.id, message.id),
+    ]);
 
     return NextResponse.json(
       { success: true, message: serialized },

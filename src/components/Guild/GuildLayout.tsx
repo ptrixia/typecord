@@ -436,7 +436,13 @@ export default function GuildLayout({
   }, [channels, guild.id, guild.name, pushToast, router]);
 
   return (
-    <div className="m-1 flex h-full min-h-0 w-full flex-1 flex-row overflow-hidden rounded-t-3xl bg-stone-200 dark:bg-zinc-950/80">
+    <div
+      className="typecord-guild-layout m-1 flex h-full min-h-0 w-full flex-1 flex-row overflow-hidden rounded-t-3xl bg-stone-200 dark:bg-zinc-950/80"
+      style={{
+        ["--typecord-accent" as string]: guild.accentColor ?? "#5865F2",
+        ["--typecord-guild-background" as string]: guild.backgroundUrl ? `url(${guild.backgroundUrl})` : "none",
+      } as React.CSSProperties}
+    >
       {showOnboarding && (
         <div className="fixed inset-0 z-[100000] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
           <div className="w-full max-w-2xl rounded-2xl border border-zinc-200 bg-white p-6 shadow-2xl dark:border-zinc-800 dark:bg-[#1e1f22]">
@@ -557,6 +563,8 @@ export default function GuildLayout({
         {activeChannel ? (
           <ChatArea
             channel={activeChannel}
+            guildId={guild.id}
+            customEmojis={guild.emojis ?? []}
             currentUser={currentMember?.user}
             users={members.map(
               (member: any) => member?.user ?? member,

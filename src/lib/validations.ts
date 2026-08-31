@@ -40,14 +40,24 @@ export const messageSchema = z.object({
 export function getFileUrl(urlOrKey?: string | null) {
   if (!urlOrKey) return "";
 
-  if (
-    urlOrKey.startsWith("http://") ||
-    urlOrKey.startsWith("https://") ||
-    urlOrKey.startsWith("blob:") ||
-    urlOrKey.startsWith("/")
-  ) {
-    return urlOrKey;
+  let value = urlOrKey.trim();
+
+  // Evita gerar /api/files?key=/api/files?key=... quando uma mensagem
+  // antiga já armazenou a URL interna em vez da chave do storage.
+  for (let attempt = 0; attempt < 3 && value.startsWith("/api/files?"); attempt += 1) {
+    const nestedKey = new URL(value, "https://typecord.invalid").searchParams.get("key");
+    if (!nestedKey) return "";
+    value = nestedKey.trim();
   }
 
-  return `/api/files?key=${encodeURIComponent(urlOrKey)}`;
+  if (
+    value.startsWith("http://") ||
+    value.startsWith("https://") ||
+    value.startsWith("blob:") ||
+    (value.startsWith("/") && !value.startsWith("/api/files?"))
+  ) {
+    return value;
+  }
+
+  return `/api/files?key=${encodeURIComponent(value.replace(/^\/+/, ""))}`;
 }

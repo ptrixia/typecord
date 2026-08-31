@@ -13,12 +13,6 @@ import {
   serializeConversation,
 } from "@/lib/direct-messages.server";
 
-type RouteContext = {
-  params: Promise<{
-    conversationId: string;
-  }>;
-};
-
 type PatchBody =
   | {
       action: "update";
@@ -39,7 +33,6 @@ type PatchBody =
 
 export async function PATCH(
   request: NextRequest,
-  context: RouteContext,
 ) {
   try {
     const currentUser = await getCurrentUser();
@@ -51,7 +44,10 @@ export async function PATCH(
       );
     }
 
-    const { conversationId } = await context.params;
+    const conversationId = request.nextUrl.searchParams.get("conversationId")?.trim() ?? "";
+    if (!conversationId) {
+      return NextResponse.json({ success: false, message: "conversationId é obrigatório." }, { status: 400 });
+    }
     await assertConversationMember(conversationId, currentUser.id);
 
     const conversation = await db.directConversation.findUnique({
@@ -307,7 +303,6 @@ export async function PATCH(
 
 export async function DELETE(
   _request: Request,
-  context: RouteContext,
 ) {
   try {
     const currentUser = await getCurrentUser();
@@ -319,7 +314,10 @@ export async function DELETE(
       );
     }
 
-    const { conversationId } = await context.params;
+    const conversationId = new URL(_request.url).searchParams.get("conversationId")?.trim() ?? "";
+    if (!conversationId) {
+      return NextResponse.json({ success: false, message: "conversationId é obrigatório." }, { status: 400 });
+    }
     await assertConversationMember(conversationId, currentUser.id);
 
     const conversation = await db.directConversation.findUnique({

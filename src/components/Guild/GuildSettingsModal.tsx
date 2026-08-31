@@ -35,6 +35,7 @@ import {
   LogOut,
   Pencil,
   Plus,
+  Puzzle,
   RefreshCw,
   Save,
   Search,
@@ -99,6 +100,9 @@ import Banner from "../Image/Banner";
 
 type Tab =
   | "overview"
+  | "appearance"
+  | "metrics"
+  | "plugins"
   | "roles"
   | "members"
   | "channels"
@@ -321,6 +325,8 @@ export default function GuildSettingsModal({ isOpen, onClose, guild }: Props) {
   const [icon, setIcon] = useState("");
   const [banner, setBanner] = useState("");
   const [vanityUrl, setVanityUrl] = useState("");
+  const [accentColor, setAccentColor] = useState("#5865F2");
+  const [backgroundUrl, setBackgroundUrl] = useState("");
 
   const [roleSearch, setRoleSearch] = useState("");
   const [permissionSearch, setPermissionSearch] = useState("");
@@ -461,6 +467,8 @@ export default function GuildSettingsModal({ isOpen, onClose, guild }: Props) {
     setIcon(guild.iconUrl ?? "");
     setBanner(guild.bannerUrl ?? "");
     setVanityUrl(guild.vanityUrl ?? "");
+    setAccentColor(guild.accentColor ?? "#5865F2");
+    setBackgroundUrl(guild.backgroundUrl ?? "");
     setSelectedRoleId(null);
     setSelectedMemberId(null);
     setPermissionSearch("");
@@ -586,6 +594,8 @@ export default function GuildSettingsModal({ isOpen, onClose, guild }: Props) {
         iconUrl: icon || null,
         bannerUrl: banner || null,
         vanityUrl: vanityUrl || null,
+        accentColor,
+        backgroundUrl: backgroundUrl || null,
       });
       router.refresh();
       await loadExtras();
@@ -968,6 +978,9 @@ export default function GuildSettingsModal({ isOpen, onClose, guild }: Props) {
                 badge={extras?.guild._count.emojis ?? 0}
                 onClick={() => setTab("emojis")}
               />
+              <NavButton active={tab === "appearance"} icon={<Sparkles size={17} />} label="Aparência" onClick={() => setTab("appearance")} />
+              <NavButton active={tab === "metrics"} icon={<CircleGauge size={17} />} label="Métricas" onClick={() => setTab("metrics")} />
+              <NavButton active={tab === "plugins"} icon={<Puzzle size={17} />} label="Plugins" onClick={() => setTab("plugins")} />
               <NavButton
                 active={tab === "production"}
                 icon={<Sparkles size={17} />}
@@ -1176,6 +1189,21 @@ export default function GuildSettingsModal({ isOpen, onClose, guild }: Props) {
                 />
               )}
 
+              {tab === "appearance" && (
+                <AppearanceTab
+                  accentColor={accentColor}
+                  setAccentColor={setAccentColor}
+                  backgroundUrl={backgroundUrl}
+                  setBackgroundUrl={setBackgroundUrl}
+                  loading={loading}
+                  canManage={Boolean(capabilities?.canManageGuild)}
+                  onSave={() => void saveOverview()}
+                />
+              )}
+
+              {tab === "metrics" && <MetricsTab guildId={guild.id} />}
+              {tab === "plugins" && <PluginManagementTab guildId={guild.id} canManage={Boolean(capabilities?.canManageGuild)} />}
+
               {tab === "production" && (
                 <ProductionTab
                   guild={guild}
@@ -1341,6 +1369,107 @@ export default function GuildSettingsModal({ isOpen, onClose, guild }: Props) {
   );
 
   return createPortal(content, document.body);
+}
+
+function AppearanceTab({
+  accentColor,
+  setAccentColor,
+  backgroundUrl,
+  setBackgroundUrl,
+  loading,
+  canManage,
+  onSave,
+}: {
+  accentColor: string;
+  setAccentColor: (value: string) => void;
+  backgroundUrl: string;
+  setBackgroundUrl: (value: string) => void;
+  loading: boolean;
+  canManage: boolean;
+  onSave: () => void;
+}) {
+  return (
+    <section className="space-y-6">
+      <PageHeader icon={<Sparkles size={22} />} title="Aparência do servidor" description="Defina a identidade visual que aparece para toda a comunidade." />
+      <Card className="space-y-6">
+        <div className="grid gap-5 md:grid-cols-[180px_minmax(0,1fr)]">
+          <div>
+            <p className="text-sm font-bold text-zinc-900 dark:text-white">Cor de destaque</p>
+            <p className="mt-1 text-xs leading-5 text-zinc-500">Usada em botões, links e detalhes do servidor.</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(accentColor) ? accentColor : "#5865F2"} onChange={(event) => setAccentColor(event.target.value)} disabled={!canManage || loading} className="h-12 w-16 cursor-pointer rounded-xl border border-zinc-200 bg-transparent p-1 dark:border-white/10" />
+            <TextInput value={accentColor} onChange={(event) => setAccentColor(event.target.value)} disabled={!canManage || loading} placeholder="#5865F2" />
+          </div>
+        </div>
+        <Field label="Plano de fundo" description="URL de uma imagem para o fundo do servidor. Deixe vazio para remover.">
+          <TextInput value={backgroundUrl} onChange={(event) => setBackgroundUrl(event.target.value)} disabled={!canManage || loading} placeholder="https://..." />
+        </Field>
+        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 dark:border-white/10 dark:bg-white/[0.03]">
+          <div className="text-xs font-black uppercase tracking-widest text-zinc-500">Pré-visualização</div>
+          <div className="mt-3 flex h-24 items-end rounded-xl p-4" style={{ backgroundColor: accentColor, backgroundImage: backgroundUrl ? `linear-gradient(90deg, rgba(0,0,0,.55), rgba(0,0,0,.1)), url(${backgroundUrl})` : undefined, backgroundSize: "cover", backgroundPosition: "center" }}>
+            <span className="text-lg font-black text-white">Sua comunidade</span>
+          </div>
+        </div>
+        <div className="flex justify-end border-t border-zinc-200 pt-5 dark:border-white/10">
+          <button type="button" onClick={onSave} disabled={!canManage || loading} className="flex h-10 items-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-bold text-white transition hover:bg-indigo-500 disabled:opacity-50"><Save size={16} /> Salvar aparência</button>
+        </div>
+      </Card>
+    </section>
+  );
+}
+
+function MetricsTab({ guildId }: { guildId: string }) {
+  const [data, setData] = useState<{ members?: number; messages?: number; channels?: number; activeMembers?: number } | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    void fetch(`/api/guilds/${guildId}/metrics`).then(async (response) => {
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.message || "Não foi possível carregar as métricas.");
+      if (!cancelled) setData(body.metrics ?? body);
+    }).catch((reason) => { if (!cancelled) setError(reason instanceof Error ? reason.message : "Não foi possível carregar as métricas."); });
+    return () => { cancelled = true; };
+  }, [guildId]);
+  const cards = [
+    ["Membros", data?.members ?? 0, Users],
+    ["Mensagens", data?.messages ?? 0, Hash],
+    ["Canais", data?.channels ?? 0, Server],
+    ["Ativos recentes", data?.activeMembers ?? 0, ActivityIcon],
+  ] as const;
+  return <section className="space-y-6"><PageHeader icon={<CircleGauge size={22} />} title="Métricas do servidor" description="Uma visão rápida da atividade e do crescimento da comunidade." />{error ? <Card><EmptyState icon={<AlertTriangle size={22} />} title="Métricas indisponíveis" description={error} /></Card> : <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{cards.map(([label, value, Icon]) => <Card key={label} className="p-5"><Icon size={19} className="text-indigo-500" /><div className="mt-5 text-3xl font-black text-zinc-900 dark:text-white">{value.toLocaleString("pt-BR")}</div><div className="mt-1 text-xs font-bold uppercase tracking-widest text-zinc-500">{label}</div></Card>)}</div>}</section>;
+}
+
+function ActivityIcon(props: { size?: number; className?: string }) { return <Gauge {...props} />; }
+
+type PluginCatalogItem = { id: string; name: string; version: string; description: string; permissions: string[]; commands: Array<{ name: string; description: string }> };
+type InstalledPlugin = { pluginId: string; enabled: boolean; version: string; manifest: PluginCatalogItem | null };
+
+function PluginManagementTab({ guildId, canManage }: { guildId: string; canManage: boolean }) {
+  const [catalog, setCatalog] = useState<PluginCatalogItem[]>([]);
+  const [installed, setInstalled] = useState<InstalledPlugin[]>([]);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const reload = useCallback(async () => {
+    try {
+      const [catalogResponse, installedResponse] = await Promise.all([fetch("/api/plugins"), fetch(`/api/guilds/${guildId}/plugins`)]);
+      const catalogBody = await catalogResponse.json();
+      const installedBody = await installedResponse.json();
+      if (!catalogResponse.ok || !installedResponse.ok) throw new Error(installedBody?.error || catalogBody?.error || "Não foi possível carregar os plugins.");
+      setCatalog(catalogBody.plugins ?? []); setInstalled(installedBody.plugins ?? []); setError("");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Não foi possível carregar os plugins."); }
+  }, [guildId]);
+  useEffect(() => { void reload(); }, [reload]);
+  async function change(pluginId: string, method: "POST" | "PATCH" | "DELETE", enabled?: boolean) {
+    setBusy(pluginId); setError("");
+    try {
+      const response = await fetch(`/api/guilds/${guildId}/plugins`, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pluginId, ...(enabled === undefined ? {} : { enabled }) }) });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.error || "Não foi possível alterar o plugin.");
+      await reload();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Não foi possível alterar o plugin."); } finally { setBusy(""); }
+  }
+  return <section className="space-y-6"><PageHeader icon={<Puzzle size={22} />} title="Plugins do servidor" description="Instale extensões, revise as permissões exigidas e controle quando elas podem executar." />{error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300">{error}</div>}<div className="grid gap-4 lg:grid-cols-2">{catalog.map((plugin) => { const current = installed.find((item) => item.pluginId === plugin.id); return <Card key={plugin.id} className="flex flex-col gap-4"><div className="flex items-start justify-between gap-3"><div><h3 className="font-bold text-zinc-900 dark:text-white">{plugin.name}</h3><p className="mt-1 text-xs text-zinc-500">v{plugin.version} · {plugin.id}</p></div><span className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${current?.enabled ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300" : "bg-zinc-100 text-zinc-500 dark:bg-white/[0.06]"}`}>{current ? current.enabled ? "Ativo" : "Pausado" : "Não instalado"}</span></div><p className="text-sm leading-5 text-zinc-600 dark:text-zinc-400">{plugin.description}</p><div className="flex flex-wrap gap-1.5">{plugin.permissions.map((permission) => <span key={permission} className="rounded-md bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">{permission}</span>)}</div><div className="mt-auto flex gap-2 border-t border-zinc-200 pt-4 dark:border-white/10">{!current ? <button type="button" disabled={!canManage || busy === plugin.id} onClick={() => void change(plugin.id, "POST")} className="flex h-9 items-center gap-2 rounded-lg bg-indigo-600 px-3 text-xs font-bold text-white disabled:opacity-50"><Plus size={14} /> Instalar</button> : <><button type="button" disabled={!canManage || busy === plugin.id} onClick={() => void change(plugin.id, "PATCH", !current.enabled)} className="rounded-lg border border-zinc-200 px-3 text-xs font-bold text-zinc-700 dark:border-white/10 dark:text-zinc-300">{current.enabled ? "Pausar" : "Ativar"}</button><button type="button" disabled={!canManage || busy === plugin.id} onClick={() => void change(plugin.id, "DELETE")} className="rounded-lg border border-red-200 px-3 text-xs font-bold text-red-600 dark:border-red-500/20 dark:text-red-300">Desinstalar</button></>}</div></Card>; })}</div>{!canManage && <p className="text-xs text-zinc-500">Você precisa de Gerenciar servidor para instalar ou alterar plugins.</p>}</section>;
 }
 
 function OverviewTab({
@@ -2635,6 +2764,7 @@ function BansTab({ bans, loading, canManage, onUnban }: any) {
 }
 
 function AuditTab({ logs, loading, canView }: any) {
+  const [filter, setFilter] = useState("");
   if (!canView && !loading) {
     return (
       <Gate
@@ -2657,13 +2787,14 @@ function AuditTab({ logs, loading, canView }: any) {
       />
 
       <Card>
+        {!loading && logs.length > 0 && <div className="mb-5 flex flex-wrap items-center gap-2 border-b border-zinc-200 pb-4 dark:border-white/[0.06]"><SearchInput value={filter} onChange={setFilter} placeholder="Filtrar por ação, usuário ou ID..." /><span className="text-xs text-zinc-500">{logs.filter((entry: any) => `${entry.action} ${entry.targetId ?? ""} ${entry.actor?.username ?? ""}`.toLowerCase().includes(filter.toLowerCase())).length} resultado(s)</span></div>}
         {loading ? (
           <LoadingState />
         ) : logs.length === 0 ? (
           <EmptyState icon={<FileClock size={28} />} title="Nenhuma ação registrada" />
         ) : (
           <div className="divide-y divide-zinc-200 dark:divide-white/[0.06]">
-            {logs.map((entry: any) => (
+            {logs.filter((entry: any) => `${entry.action} ${entry.targetId ?? ""} ${entry.actor?.username ?? ""}`.toLowerCase().includes(filter.toLowerCase())).map((entry: any) => (
               <div key={entry.id} className="flex gap-4 py-4 first:pt-0 last:pb-0">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-500/10 text-indigo-500">
                   <FileClock size={17} />
@@ -3251,6 +3382,9 @@ function EmptyState({ icon, title, description, compact = false }: { icon: React
 function tabTitle(tab: Tab) {
   const labels: Record<Tab, string> = {
     overview: "Visão geral",
+    appearance: "Aparência",
+    metrics: "Métricas",
+    plugins: "Plugins",
     roles: "Cargos e permissões",
     members: "Membros",
     channels: "Canais e categorias",
@@ -3267,6 +3401,9 @@ function tabTitle(tab: Tab) {
 function tabSubtitle(tab: Tab) {
   const labels: Record<Tab, string> = {
     overview: "Identidade e informações do servidor",
+    appearance: "Personalização visual da comunidade",
+    metrics: "Atividade e crescimento do servidor",
+    plugins: "Extensões e automações instaladas",
     roles: "Hierarquia e bitfields de permissões",
     members: "Cargos, apelidos e moderação",
     channels: "Estrutura do servidor",

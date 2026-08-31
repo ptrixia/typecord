@@ -15,6 +15,8 @@ import {
 import Avatar, { resolveFileUrl } from "@/components/Image/Avatar";
 import Modal from "@/components/Modal";
 import type { RelationshipSummary, UserStatus } from "@/types/direct-messages";
+import RichPresenceBadge from "./RichPresenceBadge";
+import { usePreferences } from "@/components/app/PreferencesProvider";
 
 export type ProfileUser = {
   id?: string | null;
@@ -27,6 +29,7 @@ export type ProfileUser = {
   bio?: string | null;
   status?: UserStatus | string | null;
   customStatus?: string | null;
+  richPresence?: { type?: string | null; name?: string | null; details?: string | null; state?: string | null; expiresAt?: string | Date | null } | null;
 };
 
 type ConfirmAction = "remove" | "block" | null;
@@ -90,6 +93,7 @@ export function ProfileSurface({
   onClose,
   variant = "modal",
 }: ProfileSurfaceProps) {
+  const { preferences } = usePreferences();
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null);
@@ -329,11 +333,11 @@ export function ProfileSurface({
                 globalName={user.globalName ?? null}
                 className={variant === "preview" ? "h-14 w-14" : "h-20 w-20"}
               />
-              <span
+              {preferences.showOnlineStatus && <span
                 className={`absolute bottom-0 right-0 rounded-full border-[3px] border-white dark:border-[#111214] ${
                   variant === "preview" ? "h-4 w-4" : "h-5 w-5"
                 } ${statusColors[status]}`}
-              />
+              />}
             </div>
 
             <div className="min-w-0 pb-1">
@@ -350,7 +354,7 @@ export function ProfileSurface({
             </div>
           </div>
 
-          {variant === "modal" && (
+          {variant === "modal" && preferences.showOnlineStatus && (
             <div className="mb-1 flex shrink-0 items-center gap-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">
               <span className={`h-2.5 w-2.5 rounded-full ${statusColors[status]}`} />
               {statusLabels[status]}
@@ -382,6 +386,8 @@ export function ProfileSurface({
             )}
           </div>
         )}
+
+        {preferences.showActivity && <div className="mt-3"><RichPresenceBadge presence={user.richPresence} /></div>}
 
         <div className="mt-4 flex flex-wrap gap-2">
           {onStartDm && user.id && !isSelf && !blockedMe && (

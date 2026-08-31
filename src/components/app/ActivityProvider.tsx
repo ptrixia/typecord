@@ -12,6 +12,7 @@ import {
 } from "react";
 
 import { onGatewayEvent } from "@/lib/realtime/gateway-client";
+import { usePreferences } from "./PreferencesProvider";
 
 type Location =
   | { type: "guild"; guildId: string; channelId: string | null }
@@ -84,7 +85,28 @@ function readMessagePayload(data: any) {
   };
 }
 
+function playNotificationSound() {
+  if (typeof window === "undefined") return;
+  try {
+    const context = new AudioContext();
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.frequency.value = 660;
+    oscillator.type = "sine";
+    gain.gain.setValueAtTime(0.0001, context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.08, context.currentTime + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.16);
+    oscillator.connect(gain).connect(context.destination);
+    oscillator.start();
+    oscillator.stop(context.currentTime + 0.18);
+    oscillator.addEventListener("ended", () => void context.close());
+  } catch {
+    // O navegador pode bloquear áudio até existir uma interação do usuário.
+  }
+}
+
 export function ActivityProvider({ children }: { children: React.ReactNode }) {
+  const { preferences } = usePreferences();
   const [activeLocation, setActiveLocationState] = useState<Location>(null);
   const [currentUserId, setCurrentUserId] = useState("");
   const [unread, setUnread] = useState<Record<string, number>>({});
@@ -119,6 +141,25 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
   }, [currentUserId]);
 
   const markAllRead = useCallback(() => setUnread({}), []);
+
+  useEffect(() => {
+    if (!currentUserId) return;
+    void fetch("/api/notifications", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((body) => {
+        const items = (body.notifications ?? []).map((notification: any) => ({
+          id: notification.id,
+          kind: notification.type === "REPLY" ? "reply" : notification.type === "PIN" ? "pin" : "mention",
+          scopeId: notification.channelId || notification.guildId || "notifications",
+          title: notification.title,
+          excerpt: notification.content || "Nova notificação",
+          href: notification.href || "/channels/@me",
+          createdAt: new Date(notification.createdAt).getTime(),
+        }));
+        setInbox(items);
+      })
+      .catch(() => undefined);
+  }, [currentUserId]);
 
   const registerGuildScopes = useCallback((guildId: string, channelIds: string[]) => {
     setScopeParents((current) => {
@@ -170,6 +211,13 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
       const hasMention = Boolean(mentionToken && payload.content.includes(mentionToken));
       const isReply = Boolean(userIdRef.current && payload.replyAuthorId === userIdRef.current);
       if (!hasMention && !isReply) return;
+      if (preferences.soundNotifications) playNotificationSound();
+      if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+        new Notification(hasMention ? `Você foi mencionado por ${payload.author}` : `${payload.author} respondeu`, {
+          body: payload.content || "Nova mensagem",
+          tag: `typecord:${payload.id}`,
+        });
+      }
       const kind: InboxKind = hasMention ? "mention" : "reply";
 
       setInbox((current) => [
@@ -207,11 +255,27 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
       ].slice(0, 40));
     });
 
+    const removeNotification = onGatewayEvent<any>("NOTIFICATION_CREATE", ({ data }) => {
+      const notification = data?.notification ?? data;
+      if (!notification?.id) return;
+      const kind: InboxKind = notification.type === "REPLY" ? "reply" : notification.type === "PIN" ? "pin" : "mention";
+      setInbox((current) => [{
+        id: notification.id,
+        kind,
+        scopeId: notification.channelId || notification.guildId || "notifications",
+        title: notification.title || "Nova notificação",
+        excerpt: notification.content || "Nova notificação",
+        href: notification.href || "/channels/@me",
+        createdAt: Date.now(),
+      }, ...current.filter((item) => item.id !== notification.id)].slice(0, 100));
+    });
+
     return () => {
       removeCreate();
       removeUpdate();
+      removeNotification();
     };
-  }, []);
+  }, [preferences.soundNotifications]);
 
   const value = useMemo(
     () => ({
@@ -309,7 +373,7 @@ export function InboxButton() {
             <div className="text-xs font-black uppercase tracking-[0.12em] text-zinc-500">Inbox</div>
             <button
               type="button"
-              onClick={markAllRead}
+            onClick={() => { markAllRead(); void fetch("/api/notifications", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ all: true }) }); }}
               className="rounded-md px-2 py-1 text-xs font-bold text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-white/10 dark:hover:text-white"
             >
               Marcar lido

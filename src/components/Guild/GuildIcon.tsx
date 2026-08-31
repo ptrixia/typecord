@@ -8,6 +8,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useActivity } from "@/components/app/ActivityProvider";
+import { getFileUrl } from "@/lib/validations";
 
 interface Guild {
   id: string | number;
@@ -21,18 +22,7 @@ interface GuildIconProps {
   guild: Guild;
 }
 
-function resolveFileUrl(urlOrKey?: string | null) {
-  if (!urlOrKey) return "";
-  if (
-    urlOrKey.startsWith("http://") ||
-    urlOrKey.startsWith("https://") ||
-    urlOrKey.startsWith("blob:") ||
-    urlOrKey.startsWith("/")
-  ) {
-    return urlOrKey;
-  }
-  return `/api/files?key=${encodeURIComponent(urlOrKey)}`;
-}
+const resolveFileUrl = getFileUrl;
 
 export default function GuildIcon({ guild }: GuildIconProps) {
   const params = useParams();

@@ -1,5 +1,7 @@
 "use client";
 
+import { getFileUrl } from "@/lib/validations";
+
 interface AvatarProps {
   avatarUrl?: string | null;
   username?: string;
@@ -8,18 +10,7 @@ interface AvatarProps {
 }
 
 export function resolveFileUrl(urlOrKey?: string | null) {
-  if (!urlOrKey) return "";
-
-  if (
-    urlOrKey.startsWith("http://") ||
-    urlOrKey.startsWith("https://") ||
-    urlOrKey.startsWith("blob:") ||
-    urlOrKey.startsWith("/")
-  ) {
-    return urlOrKey;
-  }
-
-  return `/api/files?key=${encodeURIComponent(urlOrKey)}`;
+  return getFileUrl(urlOrKey);
 }
 
 export default function Avatar({

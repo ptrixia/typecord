@@ -8,10 +8,6 @@ import { requirePermission } from "@/lib/permissions.server";
 
 export const runtime = "nodejs";
 
-type RouteContext = {
-  params: Promise<{ channelId: string }>;
-};
-
 const updateChannelSchema = z
   .object({
     name: z.string().trim().min(1).max(100).optional(),
@@ -57,9 +53,10 @@ function handleRouteError(error: unknown, operation: "PATCH" | "DELETE") {
   );
 }
 
-export async function PATCH(request: Request, context: RouteContext) {
+export async function PATCH(request: Request) {
   try {
-    const { channelId } = await context.params;
+    const channelId = new URL(request.url).searchParams.get("channelId")?.trim() ?? "";
+    if (!channelId) return NextResponse.json({ error: "channelId é obrigatório." }, { status: 400 });
     const channel = await db.channel.findUnique({
       where: { id: channelId },
     });
@@ -223,9 +220,10 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
 }
 
-export async function DELETE(_request: Request, context: RouteContext) {
+export async function DELETE(request: Request) {
   try {
-    const { channelId } = await context.params;
+    const channelId = new URL(request.url).searchParams.get("channelId")?.trim() ?? "";
+    if (!channelId) return NextResponse.json({ error: "channelId é obrigatório." }, { status: 400 });
     const channel = await db.channel.findUnique({
       where: { id: channelId },
     });

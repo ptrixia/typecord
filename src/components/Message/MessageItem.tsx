@@ -1,9 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import EmojiPicker from "emoji-picker-react";
+import { Theme } from "emoji-picker-react";
+import { useTheme } from "next-themes";
+import { useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
 import {
   Check,
   Copy,
+  Flag,
+  Hash,
   Pencil,
   Pin,
   Loader2,
@@ -36,6 +43,7 @@ export interface MessageData {
   avatarUrl?: string | null;
 
   createdAt?: string;
+  editedAt?: string | null;
   time?: string;
 
   content: string;
@@ -48,6 +56,7 @@ export interface MessageData {
     emoji: string;
     count: number;
     reactedByMe?: boolean;
+    users?: Array<{ id: string; name: string }>;
   }>;
   poll?: {
     id: string;
@@ -74,16 +83,20 @@ export interface MessageData {
   isBot?: boolean;
   isBotVerified?: boolean;
   isWebhook?: boolean;
+  threads?: Array<{ id: string; name: string; type?: string; parentId?: string | null }>;
 }
 
 interface MessageItemProps {
   message: MessageData;
+  compact?: boolean;
 
   users?: any[];
   channels?: any[];
 
   currentUserId?: string;
   canManageMessages?: boolean;
+  customEmojis?: any[];
+  guildId?: string;
 
   isMenuOpen: boolean;
 
@@ -95,6 +108,8 @@ interface MessageItemProps {
   onPollVote?: (message: MessageData, optionId: string) => void;
   onTogglePin?: (message: MessageData) => void;
   onEdit?: (message: MessageData) => void;
+  onCreateThread?: (message: MessageData) => void;
+  onJumpToMessage?: (messageId: string) => void;
 
   onDeleted?: (messageId: string) => void;
   getDeleteUrl?: (message: MessageData) => string;
@@ -102,10 +117,13 @@ interface MessageItemProps {
 
 export default function MessageItem({
   message,
+  compact = false,
   users = [],
   channels = [],
   currentUserId,
   canManageMessages = false,
+  customEmojis = [],
+  guildId,
   isMenuOpen,
   onReply,
   onMenu,
@@ -115,15 +133,27 @@ export default function MessageItem({
   onPollVote,
   onTogglePin,
   onEdit,
+  onCreateThread,
+  onJumpToMessage,
   onDeleted,
   getDeleteUrl,
 }: MessageItemProps) {
+  const router = useRouter();
   const [isDeleting, setIsDeleting] =
     useState(false);
   const [profileOpen, setProfileOpen] =
     useState(false);
+  const [reactionPickerOpen, setReactionPickerOpen] =
+    useState(false);
+  const reactionButtonRef = useRef<HTMLButtonElement>(null);
+  const [reactionPickerPosition, setReactionPickerPosition] = useState({ top: 0, left: 0 });
+  const { resolvedTheme } = useTheme();
   const [deleteConfirmOpen, setDeleteConfirmOpen] =
     useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportReason, setReportReason] = useState("SPAM");
+  const [reportDetails, setReportDetails] = useState("");
+  const [isReporting, setIsReporting] = useState(false);
   const itemRef = useRef<HTMLDivElement>(null);
   const { pushToast } = useToast();
 
@@ -238,11 +268,28 @@ export default function MessageItem({
     }
   }
 
+  async function handleReport() {
+    if (isReporting) return;
+    setIsReporting(true);
+    try {
+      const response = await fetch(`/api/messages/${encodeURIComponent(message.id)}/report`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason: reportReason, details: reportDetails || null }) });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.error || data?.message || "Não foi possível enviar a denúncia.");
+      setReportOpen(false);
+      onMenu("");
+      pushToast({ type: "success", title: "Denúncia enviada", description: "Nossa equipe vai analisar esta mensagem." });
+    } catch (error) {
+      pushToast({ type: "error", title: "Denúncia não enviada", description: error instanceof Error ? error.message : "Tente novamente." });
+    } finally { setIsReporting(false); }
+  }
+
   return (
     <>
       <div
+        data-message-id={message.id}
+        data-compact={compact ? "true" : "false"}
         ref={itemRef}
-        className={`typecord-message-item group relative -mx-2 flex w-full gap-3 rounded-md p-2 transition-colors hover:bg-black/5 dark:hover:bg-white/5 ${
+        className={`typecord-message-item group relative -mx-2 flex w-full flex-col gap-1 rounded-md p-2 transition-colors hover:bg-black/5 dark:hover:bg-white/5 ${
           message.isPending
             ? "opacity-50"
             : "opacity-100"
@@ -257,9 +304,15 @@ export default function MessageItem({
       >
         <button
           type="button"
-          onClick={() =>
-            onReact(message)
-          }
+          ref={reactionButtonRef}
+          onClick={() => {
+            if (onQuickReact) {
+              const rect = reactionButtonRef.current?.getBoundingClientRect();
+              if (rect) setReactionPickerPosition({ top: Math.max(8, rect.bottom + 8), left: Math.min(window.innerWidth - 336, Math.max(8, rect.right - 320)) });
+              setReactionPickerOpen((current) => !current);
+            }
+            else onReact(message);
+          }}
           className="rounded-l-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
           title="Adicionar reação"
         >
@@ -276,6 +329,17 @@ export default function MessageItem({
         >
           <Reply className="h-4 w-4" />
         </button>
+
+        {onCreateThread && (
+          <button
+            type="button"
+            onClick={() => onCreateThread(message)}
+            className="p-1.5 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
+            title="Criar thread a partir desta mensagem"
+          >
+            <Hash className="h-4 w-4" />
+          </button>
+        )}
 
         <div className="relative">
           <button
@@ -364,6 +428,15 @@ export default function MessageItem({
                 Copiar ID
               </button>
 
+              <button
+                type="button"
+                onClick={() => { setReportOpen(true); onMenu(""); }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-zinc-700 transition-colors hover:bg-indigo-600 hover:text-white dark:text-zinc-200"
+              >
+                <Flag className="h-3.5 w-3.5" />
+                Denunciar mensagem
+              </button>
+
               {canDelete && (
                 <>
                   <div className="my-1 h-px bg-zinc-200 dark:bg-zinc-700" />
@@ -391,39 +464,40 @@ export default function MessageItem({
             </div>
           )}
         </div>
+
+        {reactionPickerOpen && typeof document !== "undefined" && createPortal(
+          <div className="fixed z-[9999]" style={{ top: reactionPickerPosition.top, left: reactionPickerPosition.left }} onClick={(event) => event.stopPropagation()}>
+            <EmojiPicker
+              onEmojiClick={(emojiData) => { onQuickReact?.(message, emojiData.emoji); setReactionPickerOpen(false); }}
+              theme={resolvedTheme === "dark" ? Theme.DARK : Theme.LIGHT}
+              width={320}
+              height={390}
+              skinTonesDisabled
+              previewConfig={{ showPreview: false }}
+            />
+            {customEmojis.length > 0 && <div className="mt-1 grid max-h-24 grid-cols-8 gap-1 rounded-lg bg-white p-2 shadow dark:bg-[#2b2d31]">{customEmojis.slice(0, 24).map((emoji: any) => <button key={emoji.id} type="button" title={`:${emoji.name}:`} onClick={() => { onQuickReact?.(message, emoji.name); setReactionPickerOpen(false); }} className="rounded p-1 text-lg hover:bg-zinc-100 dark:hover:bg-zinc-700"><img src={emoji.url} alt={emoji.name} className="h-6 w-6 object-contain" /></button>)}</div>}
+          </div>,
+          document.body,
+        )}
       </div>
 
-      {message.avatarUrl ? (
-        <Avatar
-          avatarUrl={
-            message.avatarUrl
-          }
-        />
-      ) : (
-        <div
-          className={`mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${
-            message.avatarColor ||
-            "bg-indigo-600"
-          } text-sm font-bold text-white`}
-        >
-          {message.author
-            ? message.author
-                .charAt(0)
-                .toUpperCase()
-            : "?"}
+      {message.reply && (
+        <div className="ml-12 max-w-[min(680px,calc(100%-3rem))]">
+          <MessageReply
+            reply={message.reply}
+            onClick={() => onJumpToMessage?.(message.reply!.messageId)}
+          />
         </div>
       )}
 
-      <div className="min-w-0 flex-1">
-        {message.reply && (
-          <MessageReply
-            reply={
-              message.reply
-            }
-          />
-        )}
+      <div className="flex w-full min-w-0 gap-3">
 
-        <div className="flex items-center gap-2">
+      <div data-message-avatar-slot>
+        {message.avatarUrl ? <Avatar avatarUrl={message.avatarUrl} /> : <div className={`mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${message.avatarColor || "bg-indigo-600"} text-sm font-bold text-white`}>{message.author ? message.author.charAt(0).toUpperCase() : "?"}</div>}
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <div data-message-header className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setProfileOpen((current) => !current)}
@@ -469,6 +543,7 @@ export default function MessageItem({
               }
             />
           </span>
+          {message.editedAt && <span className="text-[10px] font-medium text-zinc-400 dark:text-zinc-500">(editado)</span>}
         </div>
 
           <MessageContent
@@ -488,6 +563,26 @@ export default function MessageItem({
             onPollVote={(optionId) => onPollVote?.(message, optionId)}
           />
 
+          {message.threads && message.threads.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {message.threads.map((thread) => (
+                <a
+                  key={thread.id}
+                  href={guildId ? `/channels/${guildId}/${thread.id}` : `/channels/${thread.id}`}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    router.push(guildId ? `/channels/${guildId}/${thread.id}` : `/channels/${thread.id}`);
+                  }}
+                  className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-indigo-300/60 bg-indigo-500/10 px-2.5 py-1 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-500/20 dark:border-indigo-400/30 dark:text-indigo-300"
+                  title={`Abrir thread ${thread.name}`}
+                >
+                  <Hash className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">{thread.name}</span>
+                </a>
+              ))}
+            </div>
+          )}
+
           {message.reactions && message.reactions.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {message.reactions.map((reaction) => (
@@ -500,12 +595,14 @@ export default function MessageItem({
                       ? "border-indigo-400 bg-indigo-500/15 text-indigo-700 dark:text-indigo-200"
                       : "border-zinc-200 bg-zinc-100 text-zinc-600 hover:border-indigo-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
                   }`}
+                  title={reaction.users?.length ? reaction.users.map((user) => user.name).join(", ") : undefined}
                 >
                   {reaction.emoji} {reaction.count}
                 </button>
               ))}
             </div>
           )}
+      </div>
       </div>
       </div>
 
@@ -521,6 +618,18 @@ export default function MessageItem({
         }}
         onConfirm={() => void handleDelete()}
       />
+
+      {reportOpen && typeof document !== "undefined" && createPortal(
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget && !isReporting) setReportOpen(false); }}>
+          <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-6 shadow-2xl dark:border-white/10 dark:bg-[#1e1f22]">
+            <div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-bold">Denunciar mensagem</h2><p className="mt-1 text-sm text-zinc-500">Selecione o motivo para ajudar a equipe de moderação.</p></div><button type="button" className="text-zinc-500" onClick={() => setReportOpen(false)} disabled={isReporting}>×</button></div>
+            <label className="mt-5 block text-xs font-bold uppercase tracking-wide text-zinc-500">Motivo<select value={reportReason} onChange={(event) => setReportReason(event.target.value)} className="mt-2 w-full rounded-lg border border-zinc-200 bg-transparent px-3 py-2 text-sm dark:border-white/10"><option value="SPAM">Spam</option><option value="HARASSMENT">Assédio</option><option value="HATE_SPEECH">Discurso de ódio</option><option value="THREATS">Ameaças</option><option value="SEXUAL_CONTENT">Conteúdo sexual</option><option value="ILLEGAL_CONTENT">Conteúdo ilegal</option><option value="PERSONAL_DATA">Dados pessoais</option><option value="OTHER">Outro</option></select></label>
+            <label className="mt-4 block text-xs font-bold uppercase tracking-wide text-zinc-500">Detalhes opcionais<textarea value={reportDetails} onChange={(event) => setReportDetails(event.target.value)} maxLength={2000} rows={4} placeholder="Contexto adicional para a moderação" className="mt-2 w-full resize-none rounded-lg border border-zinc-200 bg-transparent px-3 py-2 text-sm dark:border-white/10" /></label>
+            <div className="mt-5 flex justify-end gap-2"><button type="button" onClick={() => setReportOpen(false)} disabled={isReporting} className="rounded-lg px-4 py-2 text-sm font-semibold text-zinc-500">Cancelar</button><button type="button" onClick={() => void handleReport()} disabled={isReporting} className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{isReporting ? "Enviando…" : "Enviar denúncia"}</button></div>
+          </div>
+        </div>,
+        document.body,
+      )}
     </>
   );
 }

@@ -100,6 +100,20 @@ export interface ClientToServerEvents {
       }>,
     ) => void,
   ) => void;
+  "gateway:set-rich-presence": (payload: {
+    type?: "PLAYING" | "LISTENING" | "WATCHING" | "STREAMING" | "COMPETING" | "CUSTOM";
+    name?: string;
+    details?: string | null;
+    state?: string | null;
+    url?: string | null;
+    startedAt?: string | null;
+    endsAt?: string | null;
+    expiresAt?: string | null;
+    largeImageUrl?: string | null;
+    smallImageUrl?: string | null;
+    largeImageText?: string | null;
+    smallImageText?: string | null;
+  } | null, callback: (response: GatewayAck<{ enabled: boolean }>) => void) => void;
 }
 
 export interface ServerToClientEvents {

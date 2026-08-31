@@ -4,7 +4,7 @@ import {
   EmbedBuilder,
   Events,
   TypecordClient,
-} from "@prixia/sdk";
+} from "../index.ts";
 
 const client = new TypecordClient({
   apiUrl: process.env.TYPECORD_URL,
@@ -39,6 +39,13 @@ client.commands.register({
 
 client.once(Events.ClientReady, (ready) => {
   console.log(`Online como @${ready.user.username}`);
+  void client.setRichPresence({
+    type: "PLAYING",
+    name: "Typecord",
+    details: "Servidor online",
+    largeImageUrl: "https://seu-dominio.com/typecord-isotipo.png",
+    largeImageText: "Typecord",
+  });
 });
 
 client.on(Events.MessageCreate, async (message) => {

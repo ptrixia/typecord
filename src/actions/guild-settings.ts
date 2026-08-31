@@ -370,6 +370,8 @@ export async function updateGuildProfile(
     iconUrl?: string | null;
     bannerUrl?: string | null;
     vanityUrl?: string | null;
+    accentColor?: string | null;
+    backgroundUrl?: string | null;
   },
 ) {
   const actor = await requirePermission(guildId, Permissions.MANAGE_GUILD);
@@ -383,6 +385,12 @@ export async function updateGuildProfile(
 
   if (values.iconUrl !== undefined) data.iconUrl = values.iconUrl || null;
   if (values.bannerUrl !== undefined) data.bannerUrl = values.bannerUrl || null;
+  if (values.accentColor !== undefined) {
+    const color = values.accentColor?.trim() || null;
+    if (color && !/^#[0-9a-fA-F]{6}$/.test(color)) throw new Error("A cor de destaque deve estar no formato hexadecimal.");
+    data.accentColor = color;
+  }
+  if (values.backgroundUrl !== undefined) data.backgroundUrl = values.backgroundUrl || null;
 
   if (values.vanityUrl !== undefined) {
     const vanity = values.vanityUrl?.trim().toLowerCase() || null;

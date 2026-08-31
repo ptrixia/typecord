@@ -5,6 +5,7 @@ import { Download, File, Loader2, RefreshCw } from "lucide-react";
 
 import VideoPlayer from "../VideoPlayer";
 import ImageAttachment from "./ImageAttachment";
+import { getFileUrl } from "@/lib/validations";
 
 export interface MessageAttachmentData {
   id?: string;
@@ -57,7 +58,7 @@ function getFileType(contentType?: string, fileName?: string) {
 }
 
 function buildFileUrl(key: string) {
-  return `/api/files?key=${encodeURIComponent(key)}`;
+  return getFileUrl(key);
 }
 
 export default function MessageAttachment({ attachment }: MessageAttachmentProps) {
@@ -125,7 +126,7 @@ export default function MessageAttachment({ attachment }: MessageAttachmentProps
   if (type.startsWith("video/")) {
     return (
       <div className="mt-2 max-w-[500px] overflow-hidden rounded-lg border border-zinc-200 bg-black shadow-sm dark:border-zinc-700">
-        <VideoPlayer src={url} />
+        <VideoPlayer src={url} mimeType={type} />
         <div className="border-t border-zinc-800 bg-zinc-950 px-3 py-2">
           <p className="truncate text-xs text-zinc-300">{attachment.name}</p>
           {attachment.size && <p className="mt-0.5 text-[11px] text-zinc-500">{formatFileSize(attachment.size)}</p>}

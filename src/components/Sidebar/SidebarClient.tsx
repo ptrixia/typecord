@@ -89,6 +89,7 @@ export default function SidebarClient({ initialGuilds }: SidebarClientProps) {
   return (
     <>
       <div
+        data-focus-secondary
         className="
           m-1 flex h-full w-full max-w-24 flex-col items-center
           rounded-t-3xl bg-white py-3 font-sans dark:bg-black

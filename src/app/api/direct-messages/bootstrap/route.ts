@@ -23,7 +23,7 @@ export async function GET() {
       );
     }
 
-    const [user, conversations, relationships] = await Promise.all([
+    const [user, conversations, relationships, folders] = await Promise.all([
       db.user.findUnique({
         where: { id: currentUser.id },
         select: directUserSelect,
@@ -44,6 +44,7 @@ export async function GET() {
           createdAt: "desc",
         },
       }),
+      db.directConversationFolder.findMany({ where: { userId: currentUser.id }, orderBy: [{ position: "asc" }, { createdAt: "asc" }], select: { id: true, name: true, color: true, position: true } }),
     ]);
 
     if (!user) {
@@ -61,6 +62,7 @@ export async function GET() {
         relationships: relationships.map((relationship) =>
           serializeRelationship(relationship, currentUser.id),
         ),
+        folders,
       },
     });
   } catch (error) {

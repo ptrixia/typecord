@@ -8,6 +8,13 @@ export type DirectUser = {
   bannerUrl: string | null;
   bio: string | null;
   status: UserStatus;
+  e2eePublicKey?: string | null;
+  e2eeDevices?: Array<{
+    deviceId: string;
+    label?: string | null;
+    publicKey: string;
+    fingerprint: string;
+  }>;
 };
 
 export type RelationshipType = "FRIEND" | "PENDING" | "BLOCKED";
@@ -90,12 +97,17 @@ export type DirectConversationSummary = {
     hasAttachments: boolean;
   } | null;
   updatedAt: string;
+  isFavorite: boolean;
+  folder: { id: string; name: string; color: string | null } | null;
 };
+
+export type DirectConversationFolder = { id: string; name: string; color: string | null; position: number };
 
 export type DirectMessagesBootstrap = {
   currentUser: DirectUser;
   conversations: DirectConversationSummary[];
   relationships: RelationshipSummary[];
+  folders: DirectConversationFolder[];
 };
 
 export type UserSearchResult = DirectUser & {

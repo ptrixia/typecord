@@ -1,23 +1,12 @@
 "use client";
 
+import { getFileUrl } from "@/lib/validations";
+
 interface BannerProps {
   bannerUrl?: string | null;
   className?: string;
   alt?: string;
   onClick?: () => void;
-}
-
-function resolveFileUrl(urlOrKey?: string | null) {
-  if (!urlOrKey) return "";
-  if (
-    urlOrKey.startsWith("http://") ||
-    urlOrKey.startsWith("https://") ||
-    urlOrKey.startsWith("blob:") ||
-    urlOrKey.startsWith("/")
-  ) {
-    return urlOrKey;
-  }
-  return `/api/files?key=${encodeURIComponent(urlOrKey)}`;
 }
 
 export default function Banner({ 
@@ -26,7 +15,7 @@ export default function Banner({
   alt = "Banner",
   onClick 
 }: BannerProps) {
-  const resolvedBannerUrl = resolveFileUrl(bannerUrl);
+  const resolvedBannerUrl = getFileUrl(bannerUrl);
 
   return (
     <div

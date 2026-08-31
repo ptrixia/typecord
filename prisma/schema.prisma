@@ -58,6 +58,33 @@ enum ModerationActionType {
   TIMEOUT
 }
 
+enum NotificationType {
+  MENTION
+  REPLY
+  ROLE_MENTION
+  EVERYONE_MENTION
+  PIN
+  SYSTEM
+}
+
+enum MessageReportStatus {
+  OPEN
+  REVIEWING
+  RESOLVED
+  DISMISSED
+}
+
+enum MessageReportReason {
+  SPAM
+  HARASSMENT
+  HATE_SPEECH
+  THREATS
+  SEXUAL_CONTENT
+  ILLEGAL_CONTENT
+  PERSONAL_DATA
+  OTHER
+}
+
 model GatewaySession {
   id String @id @default(dbgenerated("typecord_snowflake_id()"))
 
@@ -139,7 +166,11 @@ model User {
   bannerUrl    String?    @db.Text
   bio          String?    @db.Text
   status       UserStatus @default(OFFLINE)
+  admin        Boolean    @default(false)
+  twoFactorSecret  String?  @db.VarChar(64)
+  twoFactorEnabled Boolean  @default(false)
   customStatus String?    @db.VarChar(128)
+  e2eePublicKey String?   @db.Text
 
   bot       Bot?  @relation("BotAccount")
   botsOwned Bot[] @relation("BotOwner")
@@ -156,18 +187,86 @@ model User {
 
   directConversationsOwned       DirectConversation[]            @relation("DirectConversationOwner")
   directConversationParticipants DirectConversationParticipant[] @relation("DirectConversationParticipants")
+  directConversationFolders     DirectConversationFolder[]
   directMessagesAuthored         DirectMessage[]                 @relation("DirectMessagesAuthored")
   directMessageReactions         DirectMessageReaction[]         @relation("DirectMessageReactions")
   pollVotes                      PollVote[]
   moderationActionsReceived      ModerationAction[]              @relation("ModerationActionTarget")
   moderationActionsIssued        ModerationAction[]              @relation("ModerationActionModerator")
   richPresence                   RichPresence?
+  e2eeDevices                    UserDeviceKey[]
 
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  emailVerified DateTime?
-  accounts      Account[]
-  sessions      Session[]
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt
+  emailVerified        DateTime?
+  accounts             Account[]
+  sessions             Session[]
+  channelReadStates    ChannelReadState[]
+  uploads              Upload[]
+  permissionProposals  PermissionProposal[]
+  channelSubscriptions ChannelSubscription[]
+  installedPlugins     GuildPluginInstallation[]
+  notifications        Notification[]
+  messageReportsCreated MessageReport[] @relation("MessageReportsCreated")
+  messageReportsReviewed MessageReport[] @relation("MessageReportsReviewed")
+}
+
+model UserDeviceKey {
+  id          String    @id @default(dbgenerated("typecord_snowflake_id()"))
+  userId      String
+  deviceId    String    @db.VarChar(128)
+  label       String?   @db.VarChar(128)
+  publicKey   String    @db.Text
+  fingerprint String    @db.VarChar(128)
+  revokedAt   DateTime?
+  lastSeenAt  DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceId])
+  @@index([userId, revokedAt])
+  @@index([fingerprint])
+}
+
+model Notification {
+  id        String           @id @default(dbgenerated("typecord_snowflake_id()"))
+  userId    String
+  guildId   String?
+  channelId String?
+  messageId String?
+  type      NotificationType
+  title     String           @db.VarChar(200)
+  content   String?          @db.Text
+  href      String?          @db.Text
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read, createdAt])
+  @@index([guildId, createdAt])
+  @@index([messageId])
+}
+
+model PlatformLog {
+  id         String   @id @default(dbgenerated("typecord_snowflake_id()"))
+  level      String   @db.VarChar(16)
+  event      String   @db.VarChar(160)
+  message    String?  @db.Text
+  requestId  String?
+  route      String?
+  method     String?
+  status     Int?
+  durationMs Int?
+  userId     String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([level, createdAt])
+  @@index([route, createdAt])
 }
 
 model RichPresence {
@@ -181,6 +280,10 @@ model RichPresence {
   details   String?          @db.VarChar(128)
   state     String?          @db.VarChar(128)
   url       String?          @db.Text
+  largeImageUrl String?      @db.Text
+  smallImageUrl String?      @db.Text
+  largeImageText String?     @db.VarChar(128)
+  smallImageText String?     @db.VarChar(128)
   startedAt DateTime?
   endsAt    DateTime?
   expiresAt DateTime?
@@ -292,12 +395,31 @@ model DirectConversationParticipant {
   user   User   @relation("DirectConversationParticipants", fields: [userId], references: [id], onDelete: Cascade)
 
   isHidden   Boolean   @default(false)
+  isFavorite Boolean   @default(false)
+  folderId   String?
+  folder     DirectConversationFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
   joinedAt   DateTime  @default(now())
   lastReadAt DateTime?
 
   @@unique([conversationId, userId])
   @@index([userId])
   @@index([conversationId])
+}
+
+model DirectConversationFolder {
+  id        String   @id @default(dbgenerated("typecord_snowflake_id()"))
+  userId    String
+  name      String   @db.VarChar(48)
+  color     String?  @db.VarChar(16)
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user          User                          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversations DirectConversationParticipant[]
+
+  @@unique([userId, name])
+  @@index([userId, position])
 }
 
 model DirectMessage {
@@ -321,10 +443,12 @@ model DirectMessage {
 
   createdAt DateTime  @default(now())
   editedAt  DateTime?
+  expiresAt DateTime?
 
   @@index([conversationId, createdAt])
   @@index([authorId])
   @@index([replyToId])
+  @@index([expiresAt])
 }
 
 model DirectVoiceMessage {
@@ -377,37 +501,59 @@ model DirectMessageReaction {
 // ------------------------------------------------------
 
 model Guild {
-  id           String  @id @default(dbgenerated("typecord_snowflake_id()"))
-  name         String
-  iconUrl      String? @db.Text
-  bannerUrl    String? @db.Text
-  vanityUrl    String? @unique
-  verified     Boolean @default(false)
-  discoverable Boolean @default(false)
+  id            String  @id @default(dbgenerated("typecord_snowflake_id()"))
+  name          String
+  iconUrl       String? @db.Text
+  bannerUrl     String? @db.Text
+  accentColor   String  @default("#5865F2")
+  backgroundUrl String? @db.Text
+  vanityUrl     String? @unique
+  verified      Boolean @default(false)
+  discoverable  Boolean @default(false)
 
   ownerId String
   owner   User   @relation(fields: [ownerId], references: [id])
 
-  members           Member[]
-  roles             Role[]
-  categories        Category[]
-  channels          Channel[]
-  emojis            Emoji[]
-  stickers          Sticker[]
-  soundboardSounds  SoundboardSound[]
-  invites           Invite[]
-  bans              GuildBan[]
-  onboarding        GuildOnboarding?
-  scheduledEvents   ScheduledEvent[]
-  autoModRules      AutoModRule[]
-  moderationActions ModerationAction[]
-  templates         ServerTemplate[]
+  members             Member[]
+  roles               Role[]
+  categories          Category[]
+  channels            Channel[]
+  emojis              Emoji[]
+  stickers            Sticker[]
+  soundboardSounds    SoundboardSound[]
+  invites             Invite[]
+  bans                GuildBan[]
+  onboarding          GuildOnboarding?
+  scheduledEvents     ScheduledEvent[]
+  autoModRules        AutoModRule[]
+  moderationActions   ModerationAction[]
+  templates           ServerTemplate[]
+  pluginInstallations GuildPluginInstallation[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([ownerId])
   @@index([discoverable])
+}
+
+model GuildPluginInstallation {
+  id            String   @id @default(dbgenerated("typecord_snowflake_id()"))
+  guildId       String
+  pluginId      String
+  version       String
+  enabled       Boolean  @default(true)
+  settings      Json?
+  installedById String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  guild       Guild @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  installedBy User  @relation(fields: [installedById], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, pluginId])
+  @@index([guildId, enabled])
+  @@index([pluginId])
 }
 
 model GuildOnboarding {
@@ -579,12 +725,14 @@ enum ChannelType {
 }
 
 model Channel {
-  id       String      @id @default(dbgenerated("typecord_snowflake_id()"))
-  name     String
-  type     ChannelType
-  topic    String?     @db.Text
-  position Int
-  nsfw     Boolean     @default(false)
+  id              String      @id @default(dbgenerated("typecord_snowflake_id()"))
+  name            String
+  type            ChannelType
+  topic           String?     @db.Text
+  position        Int
+  nsfw            Boolean     @default(false)
+  slowmodeSeconds Int         @default(0)
+  locked          Boolean     @default(false)
 
   userLimit Int?
   bitrate   Int?
@@ -599,15 +747,24 @@ model Channel {
   parent   Channel?  @relation("ThreadParent", fields: [parentId], references: [id], onDelete: Cascade)
   threads  Channel[] @relation("ThreadParent")
 
+  threadStarterMessageId String?  @unique
+  threadStarterMessage   Message? @relation("MessageThreadStarter", fields: [threadStarterMessageId], references: [id], onDelete: SetNull)
+
   messages             Message[]
   permissionOverwrites PermissionOverwrite[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  temporaryExpiresAt  DateTime?
+  readStates          ChannelReadState[]
+  uploads             Upload[]
+  permissionProposals PermissionProposal[]
+  subscription        ChannelSubscription?
 
   @@index([guildId])
   @@index([categoryId])
   @@index([parentId])
+  @@index([temporaryExpiresAt])
 }
 
 // ------------------------------------------------------
@@ -626,9 +783,10 @@ model Message {
   channelId String
   channel   Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
 
-  replyToId String?
-  replyTo   Message?  @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
-  replies   Message[] @relation("MessageReplies")
+  replyToId      String?
+  replyTo        Message?  @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies        Message[] @relation("MessageReplies")
+  createdThreads Channel[] @relation("MessageThreadStarter")
 
   attachments  Attachment[]
   embeds       Embed[]
@@ -638,10 +796,14 @@ model Message {
 
   createdAt DateTime  @default(now())
   editedAt  DateTime?
+  expiresAt DateTime?
+  uploads   Upload[]
+  reports   MessageReport[]
 
   @@index([channelId])
   @@index([memberId])
   @@index([replyToId])
+  @@index([expiresAt])
 }
 
 model VoiceMessage {
@@ -860,6 +1022,28 @@ model AuditLog {
   @@index([actorId])
 }
 
+model MessageReport {
+  id         String              @id @default(dbgenerated("typecord_snowflake_id()"))
+  messageId  String
+  reporterId String
+  guildId    String
+  reason     MessageReportReason
+  details    String?             @db.Text
+  status     MessageReportStatus @default(OPEN)
+  reviewerId String?
+  resolution String?             @db.Text
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+
+  message  Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  reporter User    @relation("MessageReportsCreated", fields: [reporterId], references: [id], onDelete: Cascade)
+  reviewer User?   @relation("MessageReportsReviewed", fields: [reviewerId], references: [id], onDelete: SetNull)
+
+  @@unique([messageId, reporterId])
+  @@index([guildId, status, createdAt])
+  @@index([reporterId, createdAt])
+}
+
 model ServerTemplate {
   id String @id @default(dbgenerated("typecord_snowflake_id()"))
 
@@ -879,4 +1063,76 @@ model ServerTemplate {
 
   @@index([guildId])
   @@index([public])
+}
+
+model ChannelReadState {
+  id                String   @id @default(dbgenerated("typecord_snowflake_id()"))
+  userId            String
+  channelId         String
+  lastReadMessageId String?
+  unreadCount       Int      @default(0)
+  updatedAt         DateTime @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, channelId])
+  @@index([channelId, unreadCount])
+}
+
+model Upload {
+  id        String    @id @default(dbgenerated("typecord_snowflake_id()"))
+  key       String    @unique
+  filename  String
+  mimeType  String
+  size      Int
+  ownerId   String
+  channelId String?
+  messageId String?
+  expiresAt DateTime?
+  createdAt DateTime  @default(now())
+
+  owner   User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  channel Channel? @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  message Message? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  @@index([ownerId])
+  @@index([messageId])
+  @@index([expiresAt])
+}
+
+enum PermissionProposalStatus {
+  OPEN
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+model PermissionProposal {
+  id         String                   @id @default(dbgenerated("typecord_snowflake_id()"))
+  channelId  String
+  proposerId String
+  permission String
+  reason     String?                  @db.Text
+  status     PermissionProposalStatus @default(OPEN)
+  expiresAt  DateTime?
+  createdAt  DateTime                 @default(now())
+
+  channel  Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  proposer User    @relation(fields: [proposerId], references: [id], onDelete: Cascade)
+
+  @@index([channelId, status])
+  @@index([expiresAt])
+}
+
+model ChannelSubscription {
+  id         String   @id @default(dbgenerated("typecord_snowflake_id()"))
+  channelId  String   @unique
+  creatorId  String
+  priceCents Int      @default(0)
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  creator User    @relation(fields: [creatorId], references: [id], onDelete: Cascade)
 }

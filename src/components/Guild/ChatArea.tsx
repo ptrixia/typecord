@@ -12,6 +12,8 @@ export type ChatAreaMode = "guild" | "direct";
 
 export interface ChatAreaProps {
   channel: any;
+  guildId?: string;
+  customEmojis?: any[];
   currentUser?: any;
   users?: any[];
   channels?: any[];

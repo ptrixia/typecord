@@ -6,6 +6,7 @@ import { getCurrentUser } from "@/lib/current-user";
 import { enforceRateLimit, isSameOriginRequest, sameOriginError } from "@/lib/request-security";
 import { putObject } from "@/lib/storage";
 import { uploadPrefixForUser } from "@/lib/storage-access";
+import { db } from "@/lib/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -104,6 +105,18 @@ export async function POST(request: Request) {
       body: buffer,
       contentType,
       contentLength: file.size,
+    });
+
+    await db.upload.create({
+      data: {
+        key: objectName,
+        filename,
+        mimeType: contentType,
+        size: file.size,
+        ownerId: user.id,
+        channelId: typeof formData.get("channelId") === "string" ? String(formData.get("channelId")) : null,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      },
     });
 
     return NextResponse.json(

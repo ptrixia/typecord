@@ -1,9 +1,11 @@
 import bcrypt from "bcrypt";
+import { PrismaAdapter } from "@auth/prisma-adapter";
 import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 
 import { db } from "@/lib/db";
 import { rateLimit } from "@/lib/rate-limit";
+import { verifyTotp } from "@/lib/totp";
 
 function headerValue(headers: unknown, name: string) {
   if (!headers || typeof headers !== "object") {
@@ -31,12 +33,14 @@ function loginIp(req: unknown) {
 }
 
 export const authOptions: NextAuthOptions = {
+  adapter: PrismaAdapter(db),
   providers: [
     CredentialsProvider({
       name: "credentials",
       credentials: {
         email: { label: "E-mail", type: "email" },
         password: { label: "Senha", type: "password" },
+        twoFactorCode: { label: "Código 2FA", type: "text" },
       },
       async authorize(credentials, req) {
         if (!credentials?.email || !credentials?.password) {
@@ -70,6 +74,8 @@ export const authOptions: NextAuthOptions = {
               globalName: true,
               avatarUrl: true,
               passwordHash: true,
+              twoFactorEnabled: true,
+              twoFactorSecret: true,
             },
           });
 
@@ -80,6 +86,11 @@ export const authOptions: NextAuthOptions = {
           const validPassword = await bcrypt.compare(password, user.passwordHash);
           if (!validPassword) {
             return null;
+          }
+
+          const twoFactorCode = String(credentials.twoFactorCode ?? "").trim();
+          if (user.twoFactorEnabled && (!user.twoFactorSecret || !verifyTotp(user.twoFactorSecret, twoFactorCode))) {
+            throw new Error(twoFactorCode ? "2FA_INVALID" : "2FA_REQUIRED");
           }
 
           return {
@@ -99,6 +110,8 @@ export const authOptions: NextAuthOptions = {
     signIn: "/login",
   },
   session: {
+    // CredentialsProvider só funciona com sessões JWT no NextAuth.
+    // O PrismaAdapter continua sendo usado para persistir usuários e contas.
     strategy: "jwt",
     maxAge: 30 * 24 * 60 * 60,
   },
@@ -112,11 +125,18 @@ export const authOptions: NextAuthOptions = {
       }
       return token;
     },
-    async session({ session, token }) {
-      if (session.user && token.id) {
-        (session.user as typeof session.user & { id: string }).id = token.id as string;
+    async session({ session, user, token }) {
+      const userId = user?.id ?? (token.id as string | undefined);
+      if (session.user && userId) {
+        (session.user as typeof session.user & { id: string }).id = userId;
       }
       return session;
+    },
+  },
+  events: {
+    async signIn({ user }) {
+      if (!user.id) return;
+      await db.platformLog.create({ data: { level: "security", event: "account.sign_in", userId: user.id } }).catch((error) => console.error("[AUTH_SIGNIN_LOG]", error));
     },
   },
   secret: process.env.NEXTAUTH_SECRET,

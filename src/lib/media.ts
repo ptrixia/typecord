@@ -1,5 +1,5 @@
 const STORAGE_KEY_PATTERN =
-  /^attachments\/[0-9]{4}\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z0-9]{1,10}$/i;
+  /^attachments\/(?:[0-9]+\/)?[0-9]{4}\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z0-9]{1,10}$/i;
 
 export function normalizeStorageKey(value: unknown): string | null {
   if (typeof value !== "string") {

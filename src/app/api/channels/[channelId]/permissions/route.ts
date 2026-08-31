@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { db } from "@/lib/db";
+import { getCurrentUser } from "@/lib/current-user";
 import {
   ALL_PERMISSIONS,
   Permissions,
@@ -136,6 +137,18 @@ export async function GET(_request: Request, context: RouteContext) {
   try {
     const { channelId } = await context.params;
     const channel = await getChannel(channelId);
+    const currentUser = await getCurrentUser();
+    const requestUrl = new URL(_request.url);
+    if (requestUrl.searchParams.get("check") === "send") {
+      if (!currentUser) return NextResponse.json({ canSendMessages: false }, { status: 401 });
+      const effectivePermissions = await getEffectivePermissions(channel.guildId, currentUser.id, channel.id);
+      return NextResponse.json({
+        canSendMessages:
+          hasPermission(effectivePermissions, Permissions.VIEW_CHANNEL) &&
+          hasPermission(effectivePermissions, Permissions.READ_MESSAGE_HISTORY) &&
+          hasPermission(effectivePermissions, Permissions.SEND_MESSAGES),
+      }, { headers: { "Cache-Control": "no-store" } });
+    }
     const actor = await requirePermission(
       channel.guildId,
       Permissions.MANAGE_CHANNELS,

@@ -95,6 +95,20 @@ export function isSafeStorageKey(key: string): boolean {
   );
 }
 
+export function normalizeStorageKey(value: string): string {
+  let current = value.trim();
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    let decoded = current;
+    try { decoded = decodeURIComponent(current); } catch { /* validação rejeita valores inválidos */ }
+    if (decoded !== current) { current = decoded.trim(); continue; }
+    if (!current.startsWith("/api/files?")) break;
+    const nested = new URL(current, "https://typecord.invalid").searchParams.get("key");
+    if (!nested) return "";
+    current = nested.trim();
+  }
+  return current.replace(/^\/+/, "");
+}
+
 export async function storageObjectExists(key: string): Promise<boolean> {
   if (!isSafeStorageKey(key)) {
     return false;

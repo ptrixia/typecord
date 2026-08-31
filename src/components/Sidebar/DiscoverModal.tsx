@@ -5,6 +5,7 @@ import { Compass, Search, Users, Loader2, AlertCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Modal from "../Modal";
 import { getDiscoverableGuilds, joinPublicGuild } from "@/actions/discover";
+import { getFileUrl } from "@/lib/validations";
 
 interface DiscoverModalProps {
   isOpen: boolean;
@@ -22,18 +23,7 @@ interface Guild {
   };
 }
 
-function resolveFileUrl(urlOrKey?: string | null): string {
-  if (!urlOrKey) return "";
-  
-  try {
-    if (/^(https?:\/\/|\/|blob:)/i.test(urlOrKey)) {
-      return urlOrKey;
-    }
-    return `/api/files?key=${encodeURIComponent(urlOrKey)}`;
-  } catch {
-    return "";
-  }
-}
+const resolveFileUrl = getFileUrl;
 
 export default function DiscoverModal({ isOpen, onClose }: DiscoverModalProps) {
   const router = useRouter();

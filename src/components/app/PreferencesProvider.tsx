@@ -1,6 +1,6 @@
 "use client";
 
-import { MonitorCog, Moon, Settings2, Sun } from "lucide-react";
+import { Bell, MonitorCog, Moon, Settings2, Sun, AppWindow } from "lucide-react";
 import {
   createContext,
   useContext,
@@ -10,6 +10,7 @@ import {
   useState,
 } from "react";
 import { useTheme } from "next-themes";
+import { getTauriOpenApplications, isTauriRuntime, type TauriOpenApplication } from "@/lib/tauri";
 
 type Density = "cozy" | "compact";
 
@@ -17,6 +18,15 @@ type Preferences = {
   density: Density;
   reduceMotion: boolean;
   compactMembers: boolean;
+  focusMode: boolean;
+  desktopNotifications: boolean;
+  soundNotifications: boolean;
+  showOnlineStatus: boolean;
+  showActivity: boolean;
+  showRichPresence: boolean;
+  shareDetectedApps: boolean;
+  accentColor: string;
+  appBackground: string;
 };
 
 type PreferencesContextValue = {
@@ -28,6 +38,15 @@ const DEFAULT_PREFERENCES: Preferences = {
   density: "cozy",
   reduceMotion: false,
   compactMembers: false,
+  focusMode: false,
+  desktopNotifications: true,
+  soundNotifications: true,
+  showOnlineStatus: true,
+  showActivity: true,
+  showRichPresence: true,
+  shareDetectedApps: false,
+  accentColor: "#5865f2",
+  appBackground: "#111214",
 };
 
 const STORAGE_KEY = "typecord:preferences";
@@ -45,6 +64,15 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
         density: parsed.density === "compact" ? "compact" : "cozy",
         reduceMotion: Boolean(parsed.reduceMotion),
         compactMembers: Boolean(parsed.compactMembers),
+        focusMode: Boolean(parsed.focusMode),
+        desktopNotifications: parsed.desktopNotifications !== false,
+        soundNotifications: parsed.soundNotifications !== false,
+        showOnlineStatus: parsed.showOnlineStatus !== false,
+        showActivity: parsed.showActivity !== false,
+        showRichPresence: parsed.showRichPresence !== false,
+        shareDetectedApps: Boolean(parsed.shareDetectedApps),
+        accentColor: typeof parsed.accentColor === "string" && /^#[0-9a-f]{6}$/i.test(parsed.accentColor) ? parsed.accentColor : DEFAULT_PREFERENCES.accentColor,
+        appBackground: typeof parsed.appBackground === "string" && /^#[0-9a-f]{6}$/i.test(parsed.appBackground) ? parsed.appBackground : DEFAULT_PREFERENCES.appBackground,
       });
     } catch {
       setPreferences(DEFAULT_PREFERENCES);
@@ -56,6 +84,9 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
     document.documentElement.dataset.typecordDensity = preferences.density;
     document.documentElement.dataset.typecordReduceMotion = String(preferences.reduceMotion);
     document.documentElement.dataset.typecordCompactMembers = String(preferences.compactMembers);
+    document.documentElement.dataset.typecordFocusMode = String(preferences.focusMode);
+    document.documentElement.style.setProperty("--typecord-accent", preferences.accentColor);
+    document.documentElement.style.setProperty("--typecord-app-background", preferences.appBackground);
   }, [preferences]);
 
   const value = useMemo(
@@ -115,7 +146,20 @@ export function PreferencesButton() {
   const { preferences, setPreference } = usePreferences();
   const { theme, setTheme } = useTheme();
   const [open, setOpen] = useState(false);
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">("default");
+  const [openApplications, setOpenApplications] = useState<TauriOpenApplication[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setNotificationPermission(typeof Notification === "undefined" ? "unsupported" : Notification.permission);
+    if (open) void getTauriOpenApplications().then(setOpenApplications).catch(() => setOpenApplications([]));
+  }, [open]);
+
+  async function requestNotifications() {
+    if (typeof Notification === "undefined") return;
+    const permission = await Notification.requestPermission();
+    setNotificationPermission(permission);
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -185,6 +229,17 @@ export function PreferencesButton() {
               })}
             </div>
 
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <label className="flex items-center justify-between gap-2 rounded-xl border border-zinc-200 px-3 py-2 text-xs font-bold dark:border-white/10">
+                Cor de destaque
+                <input type="color" value={preferences.accentColor} onChange={(event) => setPreference("accentColor", event.target.value)} className="h-7 w-9 cursor-pointer rounded border-0 bg-transparent" />
+              </label>
+              <label className="flex items-center justify-between gap-2 rounded-xl border border-zinc-200 px-3 py-2 text-xs font-bold dark:border-white/10">
+                Fundo do app
+                <input type="color" value={preferences.appBackground} onChange={(event) => setPreference("appBackground", event.target.value)} className="h-7 w-9 cursor-pointer rounded border-0 bg-transparent" />
+              </label>
+            </div>
+
             <div className="mt-3 px-3 pb-1 pt-2 text-[10px] font-black uppercase tracking-[0.12em] text-zinc-500">
               Densidade
             </div>
@@ -218,6 +273,35 @@ export function PreferencesButton() {
                 checked={preferences.compactMembers}
                 onChange={(value) => setPreference("compactMembers", value)}
               />
+              <ToggleRow
+                title="Modo foco"
+                description="Esconde as barras laterais para você se concentrar na conversa."
+                checked={preferences.focusMode}
+                onChange={(value) => setPreference("focusMode", value)}
+              />
+              <ToggleRow
+                title="Sons de notificação"
+                description="Emite um som quando você é mencionado ou recebe uma resposta."
+                checked={preferences.soundNotifications}
+                onChange={(value) => setPreference("soundNotifications", value)}
+              />
+              <ToggleRow
+                title="Mostrar presença"
+                description="Exibe sua atividade geral sem revelar o canal ou conversa atual."
+                checked={preferences.showRichPresence}
+                onChange={(value) => setPreference("showRichPresence", value)}
+              />
+              <ToggleRow
+                title="Compartilhar aplicativo detectado"
+                description="Mostra apenas aplicativos conhecidos e permitidos, sem títulos de janela ou chats."
+                checked={preferences.shareDetectedApps}
+                onChange={(value) => setPreference("shareDetectedApps", value)}
+              />
+              <button type="button" onClick={() => void requestNotifications()} disabled={notificationPermission === "granted" || notificationPermission === "unsupported"} className="mt-2 flex w-full items-center gap-3 rounded-xl border border-zinc-200 px-3 py-2.5 text-left transition hover:bg-zinc-50 disabled:cursor-default disabled:opacity-60 dark:border-white/10 dark:hover:bg-white/[0.04]">
+                <Bell className="h-4 w-4 shrink-0 text-indigo-500" />
+                <span className="min-w-0"><span className="block text-xs font-bold text-zinc-800 dark:text-zinc-200">{notificationPermission === "granted" ? "Notificações do sistema ativas" : "Ativar notificações do sistema"}</span><span className="mt-0.5 block text-[11px] text-zinc-500">Alertas quando houver menções ou respostas.</span></span>
+              </button>
+              {isTauriRuntime() && <div className="mt-3 rounded-xl border border-zinc-200 p-3 dark:border-white/10"><div className="flex items-center gap-2"><AppWindow className="h-4 w-4 text-indigo-500" /><span className="text-xs font-bold text-zinc-800 dark:text-zinc-200">Aplicativos detectados</span><span className="ml-auto text-[10px] font-bold text-zinc-400">{openApplications.length}</span></div><div className="mt-2 max-h-24 space-y-1 overflow-y-auto">{openApplications.slice(0, 8).map((application) => <div key={`${application.name}-${application.pid}`} className="truncate text-[11px] text-zinc-500">{application.name}</div>)}{openApplications.length === 0 && <div className="text-[11px] text-zinc-500">Nenhum aplicativo listado.</div>}</div></div>}
             </div>
           </div>
         </div>

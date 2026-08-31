@@ -24,6 +24,14 @@ const client = new TypecordClient({
 
 client.once(Events.ClientReady, (ready) => {
   console.log(`Online como @${ready.user.username}`);
+  void client.setRichPresence({
+    type: "PLAYING",
+    name: "Typecord",
+    details: "Servidor online",
+    state: "Ajudando a comunidade",
+    largeImageUrl: "https://seu-dominio.com/typecord-isotipo.png",
+    largeImageText: "Typecord",
+  });
 });
 
 client.on(Events.MessageCreate, async (message) => {
@@ -48,6 +56,10 @@ client.on(Events.MessageCreate, async (message) => {
 
 await client.login();
 ```
+
+`setRichPresence` deve ser chamado depois de `Events.ClientReady`. A presenca e
+reaplicada automaticamente apos reconexoes. Para remover a presenca, use
+`await client.clearRichPresence()`.
 
 ## Command router
 
@@ -108,6 +120,30 @@ TYPECORD_URL=http://localhost:3000
 TYPECORD_GATEWAY_URL=http://localhost:3001
 TYPECORD_BOT_TOKEN=tc_bot_...
 ```
+
+## Rich Presence
+
+A presença aceita imagens grandes e pequenas, textos acessíveis, estado,
+detalhes e janela de validade. O SDK não envia títulos de janela, nomes de
+canais ou conteúdo de conversas.
+
+```ts
+await client.setRichPresence({
+  type: "LISTENING",
+  name: "Typecord",
+  details: "Acompanhando a comunidade",
+  state: "Online",
+  largeImageUrl: "https://example.com/typecord-isotipo.png",
+  largeImageText: "Typecord",
+  expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+});
+
+await client.clearRichPresence();
+```
+
+Em reconexões, a presença desejada é reaplicada automaticamente depois do
+evento `ClientReady`. Para consumidores que precisam de eventos adicionais,
+`Events.Raw` expõe o envelope original do Gateway com `eventId` e `emittedAt`.
 
 ## Publicacao
 

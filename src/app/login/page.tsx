@@ -24,12 +24,16 @@ export default function AuthPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [twoFactorCode, setTwoFactorCode] = useState("");
+  const [requiresTwoFactor, setRequiresTwoFactor] = useState(false);
 
   const resetForm = () => {
     setUsername("");
     setEmail("");
     setPassword("");
     setConfirmPassword("");
+    setTwoFactorCode("");
+    setRequiresTwoFactor(false);
     setError("");
     setSuccessMessage("");
   };
@@ -62,6 +66,7 @@ export default function AuthPage() {
       const result = await signIn("credentials", {
         email: normalizedEmail,
         password: loginPassword,
+        twoFactorCode: twoFactorCode,
         redirect: false,
       });
 
@@ -82,7 +87,10 @@ export default function AuthPage() {
           result.error
         );
 
-        setError("E-mail ou senha incorretos.");
+        if (result.error.includes("2FA_REQUIRED") || result.error.includes("2FA_INVALID")) {
+          setRequiresTwoFactor(true);
+          setError(result.error.includes("2FA_INVALID") ? "Código de verificação inválido." : "Digite o código do seu aplicativo autenticador.");
+        } else setError("E-mail ou senha incorretos.");
         return false;
       }
 
@@ -462,6 +470,22 @@ export default function AuthPage() {
                   className="w-full rounded-lg border border-stone-300 bg-stone-50 py-2.5 pl-10 pr-3 text-sm text-stone-900 outline-none transition-all focus:border-indigo-500 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-black/40 dark:text-white dark:focus:border-indigo-500"
                 />
               </div>
+            </div>
+          )}
+
+          {!isRegister && requiresTwoFactor && (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-bold uppercase tracking-wider text-stone-600 dark:text-zinc-400">Código de verificação</label>
+              <input
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                value={twoFactorCode}
+                onChange={(event) => setTwoFactorCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                placeholder="000000"
+                disabled={isLoading}
+                className="w-full rounded-lg border border-indigo-400 bg-stone-50 px-3 py-2.5 text-center text-lg tracking-[0.4em] text-stone-900 outline-none dark:bg-black/40 dark:text-white"
+              />
             </div>
           )}
 

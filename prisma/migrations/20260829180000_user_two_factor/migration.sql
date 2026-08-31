@@ -1,0 +1,2 @@
+ALTER TABLE "User" ADD COLUMN "twoFactorSecret" VARCHAR(64);
+ALTER TABLE "User" ADD COLUMN "twoFactorEnabled" BOOLEAN NOT NULL DEFAULT false;

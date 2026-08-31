@@ -84,18 +84,9 @@ export default function DirectMessagesLayout({
           } else {
             setFriendsSelected(false);
           }
-        } else {
-          const restoredId = window.localStorage.getItem("typecord:last-dm");
-          const restoredStillExists =
-            restoredId &&
-            nextData.conversations.some((conversation) => conversation.id === restoredId);
-
-          if (restoredStillExists) {
-            setSelectedId(restoredId);
-            setFriendsSelected(false);
-            router.replace(`/channels/@me/${restoredId}`);
-          }
         }
+        // /channels/@me é deliberadamente a tela de amigos.
+        // Não restauramos automaticamente a última DM na URL.
       } catch (error) {
         setFatalError(
           error instanceof Error
@@ -106,7 +97,7 @@ export default function DirectMessagesLayout({
         setLoading(false);
       }
     },
-    [router, selectedId],
+    [selectedId],
   );
 
   useEffect(() => {
@@ -353,6 +344,10 @@ export default function DirectMessagesLayout({
               setCloseConversation(conversation);
             }
           }}
+          folders={data.folders}
+          onToggleFavorite={(conversation) => void (async () => { try { const response = await fetch("/api/direct-messages/organization", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "favorite", conversationId: conversation.id, value: !conversation.isFavorite }) }); if (!response.ok) throw new Error("Não foi possível atualizar o favorito."); await loadBootstrap(selectedId); } catch (error) { pushToast({ type: "error", title: "Favorito não atualizado", description: error instanceof Error ? error.message : "Tente novamente." }); } })()}
+          onMoveConversation={(conversation, folderId) => void (async () => { try { const response = await fetch("/api/direct-messages/organization", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "move", conversationId: conversation.id, folderId }) }); if (!response.ok) throw new Error("Não foi possível mover a conversa."); await loadBootstrap(selectedId); } catch (error) { pushToast({ type: "error", title: "Pasta não atualizada", description: error instanceof Error ? error.message : "Tente novamente." }); } })()}
+          onCreateFolder={() => void (async () => { const name = window.prompt("Nome da nova pasta"); if (!name?.trim()) return; try { const response = await fetch("/api/direct-messages/organization", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "create_folder", name: name.trim() }) }); if (!response.ok) throw new Error("Não foi possível criar a pasta."); await loadBootstrap(selectedId); } catch (error) { pushToast({ type: "error", title: "Pasta não criada", description: error instanceof Error ? error.message : "Tente novamente." }); } })()}
         />
 
         {friendsSelected || !selectedConversation ? (

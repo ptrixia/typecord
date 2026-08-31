@@ -14,6 +14,7 @@ import {
   isSameOriginRequest,
   sameOriginError,
 } from "@/lib/request-security";
+import { isE2EEEnvelope } from "@/lib/e2ee-envelope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,7 +24,7 @@ type RouteContext = {
 };
 
 const editMessageSchema = z.object({
-  content: z.string().trim().min(1).max(8000),
+  content: z.string().trim().min(1).max(24000),
 });
 
 async function getParticipantIds(conversationId: string) {
@@ -106,6 +107,13 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       return NextResponse.json(
         { success: false, message: "Essa mensagem foi apagada." },
         { status: 409 },
+      );
+    }
+
+    if (!isE2EEEnvelope(parsed.data.content)) {
+      return NextResponse.json(
+        { success: false, message: "Esta conversa exige criptografia de ponta a ponta." },
+        { status: 422 },
       );
     }
 

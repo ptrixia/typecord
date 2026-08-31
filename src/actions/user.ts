@@ -16,6 +16,10 @@ export type RichPresenceInput = {
   startedAt?: string | null;
   endsAt?: string | null;
   expiresAt?: string | null;
+  largeImageUrl?: string | null;
+  smallImageUrl?: string | null;
+  largeImageText?: string | null;
+  smallImageText?: string | null;
 };
 
 export type UpdateUserProfileInput = {
@@ -219,6 +223,10 @@ export async function updateRichPresence(input: RichPresenceInput | null) {
         state: input.state?.trim().slice(0, 128) || null,
         url: input.url?.trim().slice(0, 2048) || null,
         ...dates,
+        largeImageUrl: input.largeImageUrl?.trim().slice(0, 2048) || null,
+        smallImageUrl: input.smallImageUrl?.trim().slice(0, 2048) || null,
+        largeImageText: input.largeImageText?.trim().slice(0, 128) || null,
+        smallImageText: input.smallImageText?.trim().slice(0, 128) || null,
       },
       update: {
         type: input.type ?? "CUSTOM",
@@ -227,6 +235,10 @@ export async function updateRichPresence(input: RichPresenceInput | null) {
         state: input.state?.trim().slice(0, 128) || null,
         url: input.url?.trim().slice(0, 2048) || null,
         ...dates,
+        largeImageUrl: input.largeImageUrl?.trim().slice(0, 2048) || null,
+        smallImageUrl: input.smallImageUrl?.trim().slice(0, 2048) || null,
+        largeImageText: input.largeImageText?.trim().slice(0, 128) || null,
+        smallImageText: input.smallImageText?.trim().slice(0, 128) || null,
       },
     });
   }

@@ -50,6 +50,7 @@ import {
   normalizePermissions,
 } from "@/lib/permissions";
 import { onGatewayEvent } from "@/lib/realtime/gateway-client";
+import { getFileUrl } from "@/lib/validations";
 
 import Avatar from "../Image/Avatar";
 import ConfirmModal from "../ConfirmModal";
@@ -97,18 +98,7 @@ interface CategorySummary {
   position: number;
 }
 
-function resolveFileUrl(urlOrKey?: string | null) {
-  if (!urlOrKey) return "";
-  if (
-    urlOrKey.startsWith("http://") ||
-    urlOrKey.startsWith("https://") ||
-    urlOrKey.startsWith("blob:") ||
-    urlOrKey.startsWith("/")
-  ) {
-    return urlOrKey;
-  }
-  return `/api/files?key=${encodeURIComponent(urlOrKey)}`;
-}
+const resolveFileUrl = getFileUrl;
 
 function sortChannels(channels: any[]) {
   return channels
@@ -453,7 +443,7 @@ export default function ChannelsSidebar({
         .includes(query);
       const channels = sortChannels(
         orderedChannels.filter(
-          (channel) => String(channel.categoryId ?? "") === category.id,
+          (channel) => !channel.parentId && String(channel.categoryId ?? "") === category.id,
         ),
       ).filter(
         (channel) =>
@@ -469,8 +459,7 @@ export default function ChannelsSidebar({
     const uncategorized = sortChannels(
       orderedChannels.filter(
         (channel) =>
-          !channel.categoryId ||
-          !knownCategoryIds.has(String(channel.categoryId)),
+          (!channel.parentId && (!channel.categoryId || !knownCategoryIds.has(String(channel.categoryId)))),
       ),
     ).filter(
       (channel) =>

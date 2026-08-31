@@ -23,6 +23,7 @@ import {
   hasPermission,
   normalizePermissions,
 } from "@/lib/permissions";
+import RichPresenceBadge from "../Profile/RichPresenceBadge";
 
 interface PopupPosition {
   top: number;
@@ -146,6 +147,7 @@ export default function MembersSidebar({
               data?.online === false
                 ? "OFFLINE"
                 : data?.status ?? "ONLINE",
+            richPresence: data?.richPresence ?? null,
           });
         },
       );
@@ -906,7 +908,7 @@ export default function MembersSidebar({
 
   return (
     <>
-      <aside className="typecord-members-sidebar relative hidden min-h-0 w-60 shrink-0 flex-col border-l border-stone-300 bg-white dark:border-zinc-800/50 dark:bg-[#111214] lg:flex">
+      <aside data-focus-secondary className="typecord-members-sidebar relative hidden min-h-0 w-60 shrink-0 flex-col border-l border-stone-300 bg-white dark:border-zinc-800/50 dark:bg-[#111214] lg:flex">
         <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3">
           {groupedMembers.map(
             ({
@@ -1026,6 +1028,7 @@ export default function MembersSidebar({
                               )}
                             </span>
                           )}
+                          <RichPresenceBadge presence={user?.richPresence} compact />
                         </div>
                       );
                     },
@@ -1261,6 +1264,8 @@ export default function MembersSidebar({
                     </span>
                   )}
                 </div>
+
+                <div className="mt-3"><RichPresenceBadge presence={user?.richPresence} /></div>
 
                 <div className="mt-5 rounded-xl bg-stone-100 px-3 py-3 dark:bg-white/[0.06]">
                   <h3 className="text-[10px] font-black uppercase tracking-[0.14em] text-stone-500 dark:text-zinc-400">

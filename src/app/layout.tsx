@@ -87,14 +87,11 @@ export const metadata: Metadata = {
   },
 
   icons: {
-    icon:
-      "https://app.tysaiw.com/favicon.ico",
+    icon: "/typecord-isotipo.png",
 
-    shortcut:
-      "https://app.tysaiw.com/favicon-16x16.png",
+    shortcut: "/typecord-isotipo.png",
 
-    apple:
-      "https://app.tysaiw.com/apple-touch-icon.png",
+    apple: "/typecord-isotipo.png",
   },
 };
 

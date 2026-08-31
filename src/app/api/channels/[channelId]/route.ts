@@ -5,6 +5,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { Permissions } from "@/lib/permissions";
 import { requirePermission } from "@/lib/permissions.server";
+import { invalidateGuildCache, invalidateChannelCache } from "@/lib/cache";
 
 export const runtime = "nodejs";
 
@@ -217,6 +218,8 @@ export async function PATCH(request: Request, context: RouteContext) {
     });
 
     revalidatePath(`/channels/${channel.guildId}`);
+    await invalidateGuildCache(channel.guildId);
+    await invalidateChannelCache(channel.id);
     return NextResponse.json({ channel: updatedChannel });
   } catch (error) {
     return handleRouteError(error, "PATCH");
@@ -270,6 +273,8 @@ export async function DELETE(_request: Request, context: RouteContext) {
     });
 
     revalidatePath(`/channels/${channel.guildId}`);
+    await invalidateGuildCache(channel.guildId);
+    await invalidateChannelCache(channel.id);
     return new NextResponse(null, { status: 204 });
   } catch (error) {
     return handleRouteError(error, "DELETE");

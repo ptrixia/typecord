@@ -173,6 +173,17 @@ client.commands
 client.once(Events.ClientReady, (ready) => {
   console.log(`Typecord bot online como @${ready.user.username}`);
   console.log(`Guilds: ${ready.guilds.size}`);
+  void client
+    .setRichPresence({
+      type: "PLAYING",
+      name: "Typecord",
+      details: "Servidor online",
+      state: "Ajudando a comunidade",
+      largeImageUrl: `${process.env.TYPECORD_URL || "http://localhost:3000"}/typecord-isotipo.png`,
+      largeImageText: "Typecord",
+    })
+    .then(() => console.log("Rich Presence do bot ativado."))
+    .catch((error) => console.error("[bot] Falha ao ativar Rich Presence:", error));
   console.log("Use !help no chat.");
 });
 

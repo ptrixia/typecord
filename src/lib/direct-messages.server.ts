@@ -1,5 +1,16 @@
 import { db } from "@/lib/db";
 
+function getDisplayMessageContent(value: unknown) {
+  const text = String(value ?? "");
+  try {
+    const parsed = JSON.parse(text);
+    if ((parsed?.version === 1 || parsed?.version === 2) && parsed?.algorithm === "AES-GCM+RSA-OAEP-256") return "Mensagem protegida";
+    return parsed && typeof parsed.content === "string" ? parsed.content : text;
+  } catch {
+    return text;
+  }
+}
+
 export const directUserSelect = {
   id: true,
   username: true,
@@ -8,6 +19,16 @@ export const directUserSelect = {
   bannerUrl: true,
   bio: true,
   status: true,
+  e2eePublicKey: true,
+  e2eeDevices: {
+    where: { revokedAt: null },
+    select: {
+      deviceId: true,
+      label: true,
+      publicKey: true,
+      fingerprint: true,
+    },
+  },
 } as const;
 
 export function displayName(user: {
@@ -104,9 +125,7 @@ export async function getConversationForUser(
         },
       },
       messages: {
-        where: {
-          deleted: false,
-        },
+        where: { deleted: false, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
         orderBy: {
           createdAt: "desc",
         },
@@ -130,6 +149,7 @@ export function serializeConversation(
   const others = members.filter((member: any) => member.id !== currentUserId);
   const dmUser = others[0] ?? members[0] ?? null;
   const lastMessage = conversation.messages?.[0] ?? null;
+  const currentParticipant = conversation.participants.find((item: any) => item.userId === currentUserId);
 
   const groupDisplayName =
     conversation.name?.trim() ||
@@ -159,7 +179,7 @@ export function serializeConversation(
     lastMessage: lastMessage
       ? {
           id: lastMessage.id,
-          content: lastMessage.content,
+          content: getDisplayMessageContent(lastMessage.content),
           createdAt: lastMessage.createdAt.toISOString(),
           authorId: lastMessage.authorId,
           authorName: displayName(lastMessage.author),
@@ -167,6 +187,8 @@ export function serializeConversation(
         }
       : null,
     updatedAt: conversation.updatedAt.toISOString(),
+    isFavorite: Boolean(currentParticipant?.isFavorite),
+    folder: currentParticipant?.folder ? { id: currentParticipant.folder.id, name: currentParticipant.folder.name, color: currentParticipant.folder.color ?? null } : null,
   };
 }
 
@@ -186,15 +208,14 @@ export async function listConversations(userId: string) {
           user: {
             select: directUserSelect,
           },
+          folder: { select: { id: true, name: true, color: true } },
         },
         orderBy: {
           joinedAt: "asc",
         },
       },
       messages: {
-        where: {
-          deleted: false,
-        },
+        where: { deleted: false, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
         orderBy: {
           createdAt: "desc",
         },
@@ -253,18 +274,22 @@ export function serializeDirectMessage(message: any, currentUserId: string) {
     grouped.set(reaction.emoji, current);
   }
 
+  const rawContent = String(message.content ?? "");
+  const encrypted = (() => { try { const parsed = JSON.parse(rawContent); return (parsed?.version === 1 || parsed?.version === 2) && parsed?.algorithm === "AES-GCM+RSA-OAEP-256"; } catch { return false; } })();
   return {
     id: message.id,
-    content: message.deleted ? "" : message.content,
+    content: message.deleted ? "" : getDisplayMessageContent(message.content),
+    ...(encrypted && !message.deleted ? { encryptedContent: rawContent } : {}),
     deleted: message.deleted,
     createdAt: message.createdAt.toISOString(),
     editedAt: message.editedAt?.toISOString() ?? null,
+    expiresAt: message.expiresAt?.toISOString() ?? null,
     author: message.author,
     replyToId: message.replyToId,
     reply: message.replyTo
       ? {
           id: message.replyTo.id,
-          content: message.replyTo.deleted ? "" : message.replyTo.content,
+          content: message.replyTo.deleted ? "" : getDisplayMessageContent(message.replyTo.content),
           deleted: message.replyTo.deleted,
           author: message.replyTo.author,
         }

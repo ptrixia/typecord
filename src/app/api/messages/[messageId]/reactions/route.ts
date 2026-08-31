@@ -23,8 +23,8 @@ const reactionSchema = z.object({
   emoji: z.string().trim().min(1).max(32),
 });
 
-function reactionGroups(reactions: Array<{ unicode: string | null; emoji?: { name: string } | null; member: { userId: string } }>, userId: string) {
-  const grouped = new Map<string, { emoji: string; count: number; reactedByMe: boolean }>();
+function reactionGroups(reactions: Array<{ unicode: string | null; emoji?: { name: string } | null; member: { userId: string; user: { id: string; username: string; globalName: string | null } } }>, userId: string) {
+  const grouped = new Map<string, { emoji: string; count: number; reactedByMe: boolean; users: Array<{ id: string; name: string }> }>();
 
   for (const reaction of reactions) {
     const emoji = reaction.unicode || reaction.emoji?.name || "";
@@ -34,10 +34,12 @@ function reactionGroups(reactions: Array<{ unicode: string | null; emoji?: { nam
       emoji,
       count: 0,
       reactedByMe: false,
+      users: [],
     };
 
     current.count += 1;
     current.reactedByMe ||= reaction.member.userId === userId;
+    current.users.push({ id: reaction.member.user.id, name: reaction.member.user.globalName || reaction.member.user.username });
     grouped.set(emoji, current);
   }
 
@@ -158,7 +160,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
         reactions: {
           include: {
             emoji: true,
-            member: { select: { userId: true } },
+            member: { select: { userId: true, user: { select: { id: true, username: true, globalName: true } } } },
           },
           orderBy: { createdAt: "asc" },
         },

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X, Square, Minus } from "lucide-react";
+import Link from "next/link";
+import { X, Square, Minus, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { InboxButton } from "@/components/app/ActivityProvider";
@@ -9,6 +10,7 @@ import { PreferencesButton } from "@/components/app/PreferencesProvider";
 
 export default function Navbar() {
   const [isDesktop, setIsDesktop] = useState(false);
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
 
   useEffect(() => {
     if (
@@ -17,6 +19,12 @@ export default function Navbar() {
     ) {
       setIsDesktop(true);
     }
+  }, []);
+
+  useEffect(() => {
+    void fetch("/api/admin/overview?hours=1", { cache: "no-store" })
+      .then((response) => setIsPlatformAdmin(response.ok))
+      .catch(() => setIsPlatformAdmin(false));
   }, []);
 
   const handleMinimize = async () => {
@@ -58,6 +66,7 @@ export default function Navbar() {
         <InboxButton />
         <PreferencesButton />
         <ThemeToggle />
+        {isPlatformAdmin && <Link href="/admin" className="flex h-9 w-9 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-200 hover:text-indigo-500 dark:text-zinc-400 dark:hover:bg-zinc-800" title="Painel admin"><ShieldCheck className="h-4 w-4" /></Link>}
 
         {isDesktop && (
           <div className="flex items-center">

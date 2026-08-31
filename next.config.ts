@@ -82,7 +82,7 @@ const nextConfig: NextConfig = {
     proxyClientMaxBodySize: "26mb",
   },
   typescript: {
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: false,
   },
   ...(isProduction
     ? {}

@@ -676,3 +676,13 @@ export function onGatewayEvent<T>(
     );
   };
 }
+
+export async function setRichPresence(payload: Parameters<ClientToServerEvents["gateway:set-rich-presence"]>[0]) {
+  const current = await waitForGatewayConnection();
+  return new Promise<void>((resolve, reject) => {
+    current.emit("gateway:set-rich-presence", payload, (response) => {
+      if (!response.ok) { reject(new Error(response.message)); return; }
+      resolve();
+    });
+  });
+}

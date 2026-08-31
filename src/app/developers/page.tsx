@@ -22,6 +22,7 @@ import {
   Loader2,
   LockKeyhole,
   Plus,
+  Puzzle,
   RefreshCw,
   Search,
   Server,
@@ -54,6 +55,15 @@ interface BotData {
 type Toast = {
   type: "success" | "error" | "info";
   message: string;
+};
+
+type PluginData = {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  permissions: string[];
+  commands: Array<{ name: string; description: string }>;
 };
 
 type ApiMethod = "GET" | "POST" | "PATCH" | "DELETE";
@@ -295,6 +305,7 @@ export default function DevelopersPage() {
   const [section, setSection] = useState<"apps" | "api">("apps");
   const [bots, setBots] = useState<BotData[]>([]);
   const [guilds, setGuilds] = useState<GuildData[]>([]);
+  const [plugins, setPlugins] = useState<PluginData[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState("");
@@ -335,6 +346,8 @@ export default function DevelopersPage() {
       );
       setBots(Array.isArray(data.bots) ? data.bots.map((bot) => ({ ...bot, guilds: bot.guilds ?? [] })) : []);
       setGuilds(Array.isArray(data.guilds) ? data.guilds : []);
+      const pluginData = await requestJson<{ plugins?: PluginData[] }>("/api/plugins");
+      setPlugins(Array.isArray(pluginData.plugins) ? pluginData.plugins : []);
     } catch (error) {
       notify(error instanceof Error ? error.message : "Não foi possível carregar as aplicações.", "error");
     } finally {
@@ -553,6 +566,17 @@ export default function DevelopersPage() {
                   </button>
                 </div>
               </header>
+
+              <section className="mt-6 rounded-[28px] border border-indigo-200/70 bg-gradient-to-br from-indigo-50/90 via-white to-white p-6 shadow-sm dark:border-indigo-500/20 dark:from-indigo-500/10 dark:via-[#111113] dark:to-[#111113]">
+                <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+                  <div className="flex gap-3">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-lg shadow-indigo-500/20"><Puzzle size={21} /></div>
+                    <div><h2 className="text-lg font-black tracking-tight text-zinc-900 dark:text-white">Plugins nativos</h2><p className="mt-1 max-w-2xl text-sm leading-6 text-zinc-600 dark:text-zinc-400">Extensões seguras para adicionar comandos, automações e integrações ao Typecord.</p></div>
+                  </div>
+                  <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">{plugins.length} disponíveis</span>
+                </div>
+                {plugins.length === 0 ? <div className="mt-5 rounded-2xl border border-dashed border-indigo-200 bg-white/60 p-5 text-sm text-zinc-500 dark:border-indigo-500/20 dark:bg-white/[0.03]">O catálogo está pronto para receber plugins. Quando um plugin for publicado, ele aparecerá aqui com suas permissões e comandos.</div> : <div className="mt-5 grid gap-3 md:grid-cols-2">{plugins.map((plugin) => <article key={plugin.id} className="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-white/[0.04]"><div className="flex items-start justify-between gap-3"><div><h3 className="font-bold text-zinc-900 dark:text-white">{plugin.name}</h3><p className="mt-1 text-xs text-zinc-500">v{plugin.version} · {plugin.id}</p></div><span className="rounded-full bg-indigo-50 px-2 py-1 text-[10px] font-black uppercase text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">Disponível</span></div><p className="mt-3 text-sm leading-5 text-zinc-600 dark:text-zinc-400">{plugin.description}</p><div className="mt-3 flex flex-wrap gap-1.5">{plugin.commands.slice(0, 4).map((command) => <span key={command.name} className="rounded-md bg-zinc-100 px-2 py-1 font-mono text-[10px] text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">/{command.name}</span>)}</div></article>)}</div>}
+              </section>
 
               <div className="py-8">
                 {/* Search Bar */}

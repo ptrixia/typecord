@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -56,6 +57,7 @@ export default function MarkdownRenderer({
   channels = [],
   variant = "message",
 }: MarkdownRendererProps) {
+  const router = useRouter();
   const compact =
     variant === "embed";
 
@@ -252,8 +254,14 @@ export default function MarkdownRenderer({
         }) => (
           <a
             href={href}
-            target="_blank"
-            rel="noopener noreferrer"
+            target={href?.startsWith("/") ? undefined : "_blank"}
+            rel={href?.startsWith("/") ? undefined : "noopener noreferrer"}
+            onClick={(event) => {
+              if (href?.startsWith("/")) {
+                event.preventDefault();
+                router.push(href);
+              }
+            }}
             className="break-all text-indigo-500 hover:underline dark:text-indigo-300"
           >
             {children}

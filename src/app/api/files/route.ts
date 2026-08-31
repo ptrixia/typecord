@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/current-user";
-import { getObject, isSafeStorageKey } from "@/lib/storage";
+import { getObject, isSafeStorageKey, normalizeStorageKey } from "@/lib/storage";
 import { canUserReadStorageKey } from "@/lib/storage-access";
 
 export const runtime = "nodejs";
@@ -41,7 +41,7 @@ export async function GET(request: Request) {
       );
     }
 
-    const key = new URL(request.url).searchParams.get("key")?.trim() ?? "";
+    const key = normalizeStorageKey(new URL(request.url).searchParams.get("key") ?? "");
 
     if (!isSafeStorageKey(key)) {
       return NextResponse.json(

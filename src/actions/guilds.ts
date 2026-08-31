@@ -142,7 +142,7 @@ export async function getGuildById(guildId: string) {
 
 export async function updateGuildSettings(
   guildId: string,
-  values: { name?: string; iconUrl?: string; bannerUrl?: string | null }
+  values: { name?: string; iconUrl?: string; bannerUrl?: string | null; accentColor?: string; backgroundUrl?: string | null }
 ) {
   const u = await requirePermission(guildId, Permissions.MANAGE_GUILD);
   const data: any = {};
@@ -159,6 +159,15 @@ export async function updateGuildSettings(
 
   if (values.bannerUrl !== undefined) {
     data.bannerUrl = values.bannerUrl || null;
+  }
+
+  if (values.accentColor !== undefined) {
+    if (!/^#[0-9a-f]{6}$/i.test(values.accentColor)) throw new Error("Cor de destaque inválida.");
+    data.accentColor = values.accentColor;
+  }
+
+  if (values.backgroundUrl !== undefined) {
+    data.backgroundUrl = values.backgroundUrl || null;
   }
 
   const g = await db.guild.update({

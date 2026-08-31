@@ -1,5 +1,14 @@
 @import "tailwindcss";
 
+html[data-motion="reduced"] *,
+html[data-motion="reduced"] *::before,
+html[data-motion="reduced"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
+  transition-duration: 0.01ms !important;
+}
+
 
 @import "tw-animate-css";
 
@@ -54,6 +63,8 @@
 }
 
 :root {
+  --typecord-accent: #5865f2;
+  --typecord-app-background: #111214;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -86,6 +97,15 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+}
+
+body {
+  background: var(--typecord-app-background);
+}
+
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline: 2px solid var(--typecord-accent);
+  outline-offset: 2px;
 }
 
 .dark {
@@ -178,4 +198,33 @@ html[data-typecord-compact-members="true"] .typecord-members-sidebar {
 
 html[data-typecord-compact-members="true"] .typecord-member-row {
   padding-block: 0.25rem;
+}
+
+html[data-typecord-focus-mode="true"] [data-focus-secondary] {
+  display: none !important;
+}
+
+.typecord-message-item[data-compact="true"] {
+  padding-top: 0.125rem;
+}
+.typecord-message-item[data-compact="true"] [data-message-avatar-slot],
+.typecord-message-item[data-compact="true"] [data-message-header] {
+  visibility: hidden;
+}
+
+.typecord-message-item[data-message-highlight="true"] {
+  background: rgb(250 204 21 / 0.18);
+  box-shadow: inset 3px 0 0 rgb(234 179 8 / 0.85);
+}
+
+.typecord-guild-layout {
+  --typecord-accent: #5865f2;
+  background-image: var(--typecord-guild-background);
+  background-size: cover;
+  background-position: center;
+}
+
+.typecord-guild-layout button:hover,
+.typecord-guild-layout a:hover {
+  border-color: color-mix(in srgb, var(--typecord-accent) 45%, transparent);
 }

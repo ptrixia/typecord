@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 
 import Modal from "./Modal";
+import { createGuild } from "@/actions/guilds";
+import { acceptGuildInvite } from "@/actions/invites";
 
 type ModalStep = "options" | "create" | "join";
 
@@ -25,6 +27,8 @@ export default function AddGuildAction() {
   const [modalStep, setModalStep] = useState<ModalStep>("options");
   const [guildName, setGuildName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
 
   /*
    * Abre o modal na tela inicial.
@@ -33,6 +37,7 @@ export default function AddGuildAction() {
     setModalStep("options");
     setGuildName("");
     setInviteCode("");
+    setError("");
     setIsGuildModalOpen(true);
   };
 
@@ -59,17 +64,21 @@ export default function AddGuildAction() {
   const handleCreateGuild = async () => {
     const name = guildName.trim();
 
-    if (!name) {
+    if (!name || isLoading) {
       return;
     }
 
-    // TODO: Aqui você chamará sua API ou Server Action para salvar no banco.
-    // Exemplo: await createGuild({ name });
-
-    closeGuildModal();
-    
-    // O router.refresh() faz o Server Component (Sidebar) buscar os dados novos no banco
-    router.refresh(); 
+    try {
+      setIsLoading(true);
+      setError("");
+      await createGuild(name);
+      closeGuildModal();
+      router.refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Não foi possível criar a guild.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   /*
@@ -78,14 +87,24 @@ export default function AddGuildAction() {
   const handleJoinGuild = async () => {
     const invite = inviteCode.trim();
 
-    if (!invite) {
+    if (!invite || isLoading) {
       return;
     }
 
-    // TODO: Aqui você chamará sua API para entrar na guild pelo convite.
-    
-    closeGuildModal();
-    router.refresh();
+    const code = invite.split("/").filter(Boolean).pop()?.trim();
+    if (!code) return;
+
+    try {
+      setIsLoading(true);
+      setError("");
+      await acceptGuildInvite(code);
+      closeGuildModal();
+      router.refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Não foi possível entrar na guild.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   /*
@@ -158,6 +177,11 @@ export default function AddGuildAction() {
         onClose={closeGuildModal}
         title={getModalTitle()}
       >
+        {error ? (
+          <p role="alert" className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">
+            {error}
+          </p>
+        ) : null}
         {/* TELA INICIAL */}
         {modalStep === "options" && (
           <div className="space-y-4">
@@ -257,8 +281,8 @@ export default function AddGuildAction() {
               <button type="button" onClick={goBack} className="flex items-center gap-1 text-sm font-medium text-zinc-700 transition-colors hover:text-zinc-950 dark:text-zinc-300 dark:hover:text-white">
                 <ArrowLeft className="h-4 w-4" /> Voltar
               </button>
-              <button type="button" onClick={handleCreateGuild} disabled={!guildName.trim()} className="flex items-center gap-2 rounded-md bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white transition-all hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50">
-                <Check className="h-4 w-4" /> Criar
+              <button type="button" onClick={() => void handleCreateGuild()} disabled={!guildName.trim() || isLoading} className="flex items-center gap-2 rounded-md bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white transition-all hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50">
+                <Check className="h-4 w-4" /> {isLoading ? "Criando..." : "Criar"}
               </button>
             </div>
           </div>
@@ -310,8 +334,8 @@ export default function AddGuildAction() {
               <button type="button" onClick={goBack} className="flex items-center gap-1 text-sm font-medium text-zinc-700 transition-colors hover:text-zinc-950 dark:text-zinc-300 dark:hover:text-white">
                 <ArrowLeft className="h-4 w-4" /> Voltar
               </button>
-              <button type="button" onClick={handleJoinGuild} disabled={!inviteCode.trim()} className="flex items-center gap-2 rounded-md bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white transition-all hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50">
-                <Users className="h-4 w-4" /> Entrar na guild
+              <button type="button" onClick={() => void handleJoinGuild()} disabled={!inviteCode.trim() || isLoading} className="flex items-center gap-2 rounded-md bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white transition-all hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50">
+                <Users className="h-4 w-4" /> {isLoading ? "Entrando..." : "Entrar na guild"}
               </button>
             </div>
           </div>

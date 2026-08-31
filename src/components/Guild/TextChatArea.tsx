@@ -1,6 +1,8 @@
 
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTheme } from "next-themes";
+import { useRouter } from "next/navigation";
 import {
   Bell,
   FilePlus2,
@@ -11,7 +13,9 @@ import {
   Pin,
   Plus,
   Reply,
+  ShieldCheck,
   Smile,
+  Sparkles,
   Sticker,
   Users,
   X,
@@ -24,6 +28,7 @@ import Avatar from "../Image/Avatar";
 import SearchCommand from "../SearchCommand";
 import type { CommandItem } from "../SearchCommand";
 import GifPicker from "./GifPicker";
+import ChannelSettingsModal from "./ChannelSettingsModal";
 
 import { sendMessageAction } from "@/actions/messages";
 import { useGatewayStatus } from "@/components/app/GatewayStatusProvider";
@@ -34,11 +39,15 @@ import {
   subscribeChannel,
   unsubscribeChannel,
 } from "@/lib/realtime/gateway-client";
+import { decryptDirectMessage, encryptDirectMessage, ensureE2EEIdentity, isEncryptedMessage } from "@/lib/e2ee";
+import { indexLocalMessages } from "@/lib/local-message-search";
 
 export type TextChatMode = "guild" | "direct";
 
 interface TextChatAreaProps {
   channel: any;
+  guildId?: string;
+  customEmojis?: any[];
   currentUser?: any;
   users?: any[];
   channels?: any[];
@@ -91,6 +100,18 @@ async function generateLinkEmbeds(content: string): Promise<MessageEmbedData[]> 
     console.error("[LINK_PREVIEW_CLIENT]", error);
     return [];
   }
+}
+
+function getTemporaryMessageExpiration() {
+  if (typeof window === "undefined") return null;
+  const policy = window.localStorage.getItem("typecord:temporary-messages");
+  const durations: Record<string, number> = {
+    "1h": 60 * 60 * 1000,
+    "24h": 24 * 60 * 60 * 1000,
+    "7d": 7 * 24 * 60 * 60 * 1000,
+  };
+  const duration = policy ? durations[policy] : undefined;
+  return duration ? new Date(Date.now() + duration).toISOString() : null;
 }
 
 function normalizeMessage(message: any): MessageData {
@@ -214,6 +235,7 @@ function normalizeMessage(message: any): MessageData {
         : parsed.createdAt
           ? new Date(parsed.createdAt).toISOString()
           : new Date().toISOString(),
+    editedAt: parsed.editedAt ? new Date(parsed.editedAt).toISOString() : null,
     time: parsed.time || undefined,
     content: parsed.deleted ? "" : parsed.content || "",
     reply: normalizedReply,
@@ -227,12 +249,22 @@ function normalizeMessage(message: any): MessageData {
     isBot,
     isBotVerified,
     isWebhook: isWebhookMessage,
+    threads: Array.isArray(parsed.threads)
+      ? parsed.threads.map((thread: any) => ({
+          id: String(thread.id),
+          name: String(thread.name),
+          type: thread.type,
+          parentId: thread.parentId ?? null,
+        }))
+      : [],
     ...(parsed.deleted ? { deleted: true } : {}),
   } as MessageData;
 }
 
 export default function TextChatArea({
   channel,
+  guildId,
+  customEmojis = [],
   currentUser,
   users,
   channels,
@@ -243,14 +275,18 @@ export default function TextChatArea({
   commandItems = [],
 }: TextChatAreaProps) {
   const isDirect = mode === "direct";
+  const router = useRouter();
   const gatewayStatus = useGatewayStatus();
   const { pushToast } = useToast();
+  const { resolvedTheme } = useTheme();
+  const emojiTheme = resolvedTheme === "dark" ? Theme.DARK : Theme.LIGHT;
 
   const [isMounted, setIsMounted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [hasMore, setHasMore] = useState(true);
+  const [nextMessageCursor, setNextMessageCursor] = useState<string | null>(null);
   const [messages, setMessages] = useState<MessageData[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isGifOpen, setIsGifOpen] = useState(false);
@@ -268,9 +304,12 @@ export default function TextChatArea({
   const [activeMenuMessageId, setActiveMenuMessageId] = useState<string | null>(null);
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const [mentionSuggestions, setMentionSuggestions] = useState<MentionSuggestion[]>([]);
+  const [pluginCommands, setPluginCommands] = useState<CommandItem[]>([]);
   const [mentionIndex, setMentionIndex] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
+  const [canSendMessages, setCanSendMessages] = useState(isDirect);
+  const [threadSettingsOpen, setThreadSettingsOpen] = useState(false);
 
   const lastTypedRef = useRef(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -288,6 +327,62 @@ export default function TextChatArea({
     "Usuário";
 
   const currentUserId = String(currentUser?.id ?? "");
+
+  const jumpToMessage = useCallback((messageId: string) => {
+    const element = document.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(messageId)}"]`);
+    if (!element) {
+      pushToast({ type: "info", title: "Mensagem não carregada", description: "Essa mensagem não está nesta página do histórico." });
+      return;
+    }
+    element.scrollIntoView({ behavior: "smooth", block: "center" });
+    element.dataset.messageHighlight = "true";
+    window.setTimeout(() => {
+      element.dataset.messageHighlight = "false";
+    }, 1800);
+  }, [pushToast]);
+
+  useEffect(() => {
+    if (isDirect || !channel?.id) {
+      setCanSendMessages(true);
+      return;
+    }
+    setCanSendMessages(false);
+    let cancelled = false;
+    void fetch(`/api/channels/${encodeURIComponent(channel.id)}/permissions?check=send`, { cache: "no-store" })
+      .then((response) => response.json().catch(() => null))
+      .then((data) => {
+        if (!cancelled) setCanSendMessages(Boolean(data?.canSendMessages));
+      })
+      .catch(() => {
+        if (!cancelled) setCanSendMessages(false);
+      });
+    return () => { cancelled = true; };
+  }, [channel?.id, isDirect]);
+
+  useEffect(() => {
+    const currentGuildId = guildId || channel?.guildId;
+    if (isDirect || !currentGuildId) {
+      setPluginCommands([]);
+      return;
+    }
+    let cancelled = false;
+    void Promise.all([fetch(`/api/guilds/${currentGuildId}/plugins`, { cache: "no-store" }), fetch("/api/plugins", { cache: "no-store" })])
+      .then(async ([installedResponse, catalogResponse]) => ({ installedResponse, installed: await installedResponse.json(), catalog: await catalogResponse.json() }))
+      .then(({ installedResponse, installed, catalog }) => {
+        if (cancelled || !installedResponse.ok) return;
+        const activeIds = new Set((installed.plugins ?? []).filter((plugin: any) => plugin.enabled).map((plugin: any) => plugin.pluginId));
+        const commands = (catalog.plugins ?? []).filter((plugin: any) => activeIds.has(plugin.id)).flatMap((plugin: any) => plugin.commands ?? []);
+        setPluginCommands(commands.map((command: { name: string; description: string }) => ({ id: `plugin:${command.name}`, label: `/${command.name}`, description: command.description, keywords: ["plugin", "comando"] })));
+      })
+      .catch(() => { if (!cancelled) setPluginCommands([]); });
+    return () => { cancelled = true; };
+  }, [channel?.guildId, guildId, isDirect]);
+
+  const visiblePluginCommands = useMemo(() => {
+    if (editingMessage || !inputValue.startsWith("/") || inputValue.includes(" ")) return [];
+    const query = inputValue.slice(1).toLowerCase();
+    return pluginCommands.filter((command) => command.label.toLowerCase().slice(1).startsWith(query));
+  }, [editingMessage, inputValue, pluginCommands]);
 
   const usersList = useMemo(() => {
     if (users) {
@@ -328,6 +423,11 @@ export default function TextChatArea({
   useEffect(() => {
     setIsMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (!isDirect || !currentUserId) return;
+    void ensureE2EEIdentity(currentUserId).catch((error) => console.warn("[E2EE_IDENTITY]", error));
+  }, [currentUserId, isDirect]);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     requestAnimationFrame(() => {
@@ -375,14 +475,35 @@ export default function TextChatArea({
             ? data.items
             : [];
 
-        const normalizedItems = rawItems.map(normalizeMessage);
+        const normalizedItems = await Promise.all(rawItems.map(async (item: any) => {
+          const normalized = normalizeMessage(item);
+          const encryptedContent = item.encryptedContent ?? item.content;
+          if (isDirect && typeof encryptedContent === "string" && isEncryptedMessage(encryptedContent)) {
+            const decrypted = await decryptDirectMessage(encryptedContent, currentUserId);
+            normalized.content = decrypted ?? "Mensagem protegida";
+          }
+          return normalized;
+        }));
+        indexLocalMessages(normalizedItems.map((item: any) => ({
+          id: String(item.id),
+          content: String(item.content ?? ""),
+          author: String(item.author ?? item.authorName ?? "Usuário"),
+          scopeId: String(channel.id),
+          scopeLabel: String(channel.name ?? (isDirect ? "Mensagem direta" : "Canal")),
+          href: isDirect
+            ? `/channels/@me/${channel.id}`
+            : `/channels/${guildId ?? String(channel.guildId ?? "")}/${channel.id}`,
+          createdAt: new Date(item.createdAt ?? Date.now()).getTime(),
+        })));
+        // A API de guild já devolve a página em ordem cronológica.
+        // DMs continuam vindo em ordem reversa e precisam ser invertidas no cliente.
         const orderedItems = isDirect
           ? normalizedItems
-          : normalizedItems.reverse();
+          : normalizedItems;
 
-        setHasMore(
-          isDirect ? Boolean(data.hasMore) : Boolean(data.nextCursor),
-        );
+        const nextCursor = isDirect ? null : (typeof data.nextCursor === "string" ? data.nextCursor : null);
+        setNextMessageCursor(nextCursor);
+        setHasMore(isDirect ? Boolean(data.hasMore) : Boolean(nextCursor));
 
         setMessages((current) => {
           if (!cursor) {
@@ -428,6 +549,7 @@ export default function TextChatArea({
 
     setMessages([]);
     setHasMore(true);
+    setNextMessageCursor(null);
     setTypingUsers([]);
     setReplyingTo(null);
     setEditingMessage(null);
@@ -440,7 +562,17 @@ export default function TextChatArea({
 
     void fetchMessages();
 
-    const appendMessage = (incoming: any) => {
+    const normalizeRealtimeMessage = async (rawMessage: any) => {
+      const normalized = normalizeMessage(rawMessage);
+      const encryptedContent = rawMessage?.encryptedContent ?? rawMessage?.content;
+      if (isDirect && typeof encryptedContent === "string" && isEncryptedMessage(encryptedContent)) {
+        const decrypted = await decryptDirectMessage(encryptedContent, currentUserId);
+        normalized.content = decrypted ?? "Mensagem protegida";
+      }
+      return normalized;
+    };
+
+    const appendMessage = async (incoming: any) => {
       const rawMessage =
         incoming?.message ?? incoming?.data?.message ?? incoming;
 
@@ -448,7 +580,7 @@ export default function TextChatArea({
         return;
       }
 
-      const newMessage = normalizeMessage(rawMessage);
+      const newMessage = await normalizeRealtimeMessage(rawMessage);
 
       setMessages((current) => {
         if (current.some((message) => message.id === newMessage.id)) {
@@ -461,7 +593,7 @@ export default function TextChatArea({
       scrollToBottom("smooth");
     };
 
-    const applyMessageUpdate = (incoming: any) => {
+    const applyMessageUpdate = async (incoming: any) => {
       const rawMessage =
         incoming?.message ?? incoming?.data?.message ?? incoming;
 
@@ -469,7 +601,7 @@ export default function TextChatArea({
         return;
       }
 
-      const updatedMessage = normalizeMessage(rawMessage);
+      const updatedMessage = await normalizeRealtimeMessage(rawMessage);
       const hasIdentityPayload =
         Boolean(rawMessage.author) ||
         Boolean(rawMessage.authorId) ||
@@ -690,6 +822,17 @@ export default function TextChatArea({
     }
   }, [channel?.id]);
 
+  useEffect(() => {
+    if (isDirect || !channel?.id || messages.length === 0) return;
+    const lastMessage = messages[messages.length - 1];
+    void fetch("/api/read-state", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ channelId: channel.id, messageId: lastMessage.id }),
+      keepalive: true,
+    }).catch(() => undefined);
+  }, [channel?.id, isDirect, messages]);
+
   const handleScroll = (event: React.UIEvent<HTMLDivElement>) => {
     const target = event.currentTarget;
 
@@ -704,7 +847,8 @@ export default function TextChatArea({
 
     prevScrollHeightRef.current = target.scrollHeight;
 
-    const cursor = isDirect ? messages[0].createdAt : messages[0].id;
+    const cursor = isDirect ? messages[0].createdAt : nextMessageCursor;
+    if (!cursor) return;
 
     void fetchMessages(cursor).then(() => {
       const container = chatContainerRef.current;
@@ -829,6 +973,7 @@ export default function TextChatArea({
     }
 
     const currentReply = replyingTo;
+    const expiresAt = getTemporaryMessageExpiration();
 
     setInputValue("");
     setReplyingTo(null);
@@ -850,6 +995,23 @@ export default function TextChatArea({
             "application/octet-stream",
         }));
 
+        let messageContent = text;
+        if (text && currentUserId) {
+          const identity = await ensureE2EEIdentity(currentUserId);
+            const recipients = (usersList.length ? usersList : [currentUser]).map((member: any) => ({
+              id: String(member.id),
+              e2eePublicKey: String(member.id) === currentUserId ? identity.publicKeyString : member.e2eePublicKey,
+              e2eeDevices: String(member.id) === currentUserId
+                ? [{ deviceId: identity.deviceId, publicKey: identity.publicKeyString }, ...(member.e2eeDevices ?? [])]
+                : member.e2eeDevices,
+            }));
+          const encrypted = await encryptDirectMessage(text, recipients);
+          if (!encrypted) {
+            throw new Error("A conversa ainda não está pronta para criptografia ponta a ponta.");
+          }
+          messageContent = encrypted;
+        }
+
         const response = await fetch(
           `/api/direct-messages/conversations/${channel.id}/messages`,
           {
@@ -858,9 +1020,10 @@ export default function TextChatArea({
               "Content-Type": "application/json",
             },
         body: JSON.stringify({
-          content: text,
+          content: messageContent,
           replyToId: currentReply?.id ?? null,
           attachments: directAttachments,
+          expiresAt,
           ...extraPayload,
         }),
           },
@@ -875,6 +1038,10 @@ export default function TextChatArea({
         }
 
         const sentMessage = normalizeMessage(data.message);
+        const encryptedSentContent = String(data.message.encryptedContent ?? data.message.content ?? "");
+        if (isEncryptedMessage(encryptedSentContent)) {
+          sentMessage.content = (await decryptDirectMessage(encryptedSentContent, currentUserId)) ?? "Mensagem protegida";
+        }
 
         setMessages((current) => {
           if (current.some((message) => message.id === sentMessage.id)) {
@@ -903,6 +1070,7 @@ export default function TextChatArea({
           : null,
         attachments,
         embeds,
+        expiresAt,
         ...extraPayload,
       };
 
@@ -1432,21 +1600,28 @@ export default function TextChatArea({
     setIsAttachmentMenuOpen(false);
   };
 
-  const createThread = async () => {
+  const createThreadFromMessage = async (message: MessageData) => {
     if (isDirect || !channel?.id) return;
-    const name = `Thread de ${currentUserName}`;
+    const name = message.content.replace(/\s+/g, " ").trim().slice(0, 80) || `Thread de ${message.author}`;
 
     try {
       const response = await fetch(`/api/channels/${encodeURIComponent(channel.id)}/threads`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, private: false }),
+        body: JSON.stringify({ name, private: false, messageId: message.id }),
       });
       const data = await response.json().catch(() => null);
 
       if (!response.ok || !data?.success) {
         throw new Error(data?.message || "Não foi possível criar a thread.");
       }
+      const createdThread = data.channel;
+      setMessages((current) => {
+        const withThread = current.map((item) => item.id === message.id
+          ? { ...item, threads: [...(item.threads ?? []), { id: createdThread.id, name: createdThread.name, type: createdThread.type, parentId: createdThread.parentId }] }
+          : item);
+        return data.message ? [...withThread, normalizeMessage(data.message)] : withThread;
+      });
     } catch (error) {
       pushToast({
         type: "error",
@@ -1494,6 +1669,16 @@ export default function TextChatArea({
           )}
 
           <span className="truncate">{channel.name}</span>
+          {isDirect && (
+            <span
+              className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-600 dark:text-emerald-400"
+              title="Conversa protegida com criptografia de ponta a ponta"
+              aria-label="Conversa protegida com criptografia de ponta a ponta"
+            >
+              <ShieldCheck className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Protegida</span>
+            </span>
+          )}
         </button>
 
         <div className="flex shrink-0 items-center gap-4 text-zinc-500 dark:text-zinc-400">
@@ -1507,14 +1692,6 @@ export default function TextChatArea({
                 title={showPinnedOnly ? "Mostrar todas as mensagens" : "Mostrar mensagens fixadas"}
               >
                 <Pin className="h-5 w-5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => void createThread()}
-                className="rounded-sm hover:text-zinc-800 dark:hover:text-zinc-200"
-                title="Criar thread"
-              >
-                <Hash className="h-5 w-5" />
               </button>
             </>
           )}
@@ -1538,6 +1715,16 @@ export default function TextChatArea({
         </div>
       </div>
 
+      {!isDirect && (channel.parentId || channelsList.some((item: any) => String(item.parentId) === String(channel.id))) && (
+        <div className="flex shrink-0 items-center gap-2 overflow-x-auto border-b border-zinc-200/70 bg-zinc-50/70 px-4 py-2 dark:border-zinc-800/50 dark:bg-white/[0.02]">
+          <span className="shrink-0 text-[10px] font-black uppercase tracking-widest text-zinc-500">{channel.parentId ? "Thread" : "Threads"}</span>
+          {channel.parentId && <button type="button" onClick={() => router.push(`/channels/${guildId}/${channel.parentId}`)} className="shrink-0 rounded-md px-2 py-1 text-xs font-semibold text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800">Voltar ao canal</button>}
+          {channel.parentId && <button type="button" onClick={() => setThreadSettingsOpen(true)} className="shrink-0 rounded-md px-2 py-1 text-xs font-semibold text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800">Permissões</button>}
+          {channel.parentId && <button type="button" onClick={() => { if (window.confirm("Excluir esta thread e todas as mensagens dela?")) void fetch(`/api/channels/${channel.id}`, { method: "DELETE" }).then((response) => { if (response.ok) router.push(`/channels/${guildId}/${channel.parentId}`); else pushToast({ type: "error", title: "Thread não excluída", description: "Você não tem permissão para excluir esta thread." }); }); }} className="shrink-0 rounded-md px-2 py-1 text-xs font-semibold text-red-500 hover:bg-red-500/10">Excluir thread</button>}
+          {channelsList.filter((item: any) => String(item.parentId) === String(channel.parentId || channel.id)).map((thread: any) => <button key={thread.id} type="button" onClick={() => router.push(`/channels/${guildId}/${thread.id}`)} className={`shrink-0 rounded-md px-2.5 py-1 text-xs font-semibold ${String(thread.id) === String(channel.id) ? "bg-indigo-500/15 text-indigo-600 dark:text-indigo-300" : "text-zinc-600 hover:bg-zinc-200 dark:text-zinc-400 dark:hover:bg-zinc-800"}`}>#{thread.name}</button>)}
+        </div>
+      )}
+
       {gatewayStatus.state !== "connected" && (
         <div className="shrink-0 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2 text-xs font-semibold text-amber-700 dark:text-amber-200">
           {gatewayStatus.state === "connecting"
@@ -1558,7 +1745,7 @@ export default function TextChatArea({
             <Loader2 className="h-8 w-8 animate-spin text-zinc-500" />
           </div>
         ) : (
-          <div className="flex flex-col gap-4 pt-2">
+          <div className="flex min-h-full flex-col justify-end gap-4 pt-2">
             {isLoadingMore && (
               <div className="flex justify-center py-2">
                 <Loader2 className="h-5 w-5 animate-spin text-zinc-500" />
@@ -1584,12 +1771,15 @@ export default function TextChatArea({
               </div>
             )}
 
-            {visibleMessages.map((message) => (
+            {visibleMessages.map((message, index) => (
               <MessageItem
                 key={message.id}
                 message={message}
+                guildId={guildId}
+                compact={!message.reply && index > 0 && (message.authorId ? message.authorId === visibleMessages[index - 1]?.authorId : message.author === visibleMessages[index - 1]?.author)}
                 users={usersList}
                 channels={channelsList}
+                customEmojis={customEmojis}
                 currentUserId={currentUserId}
                 isMenuOpen={activeMenuMessageId === message.id}
                 onReply={(messageToReply) => {
@@ -1606,6 +1796,8 @@ export default function TextChatArea({
                 onPollVote={(messageWithPoll, optionId) => void votePoll(messageWithPoll, optionId)}
                 onTogglePin={!isDirect ? (messageToPin) => void togglePin(messageToPin) : undefined}
                 onEdit={!isDirect ? (messageToEdit) => beginEditMessage(messageToEdit) : undefined}
+                onCreateThread={!isDirect && !channel.parentId ? (messageToCreateThread) => void createThreadFromMessage(messageToCreateThread) : undefined}
+                onJumpToMessage={jumpToMessage}
                 getDeleteUrl={(messageToDelete) =>
                   isDirect
                     ? `/api/direct-messages/messages/${encodeURIComponent(messageToDelete.id)}`
@@ -1620,6 +1812,15 @@ export default function TextChatArea({
             <div ref={messagesEndRef} />
           </div>
         )}
+      {threadSettingsOpen && channel.parentId && (
+        <ChannelSettingsModal
+          isOpen={threadSettingsOpen}
+          onClose={() => setThreadSettingsOpen(false)}
+          channel={channel}
+          categories={[]}
+          onUpdated={() => setThreadSettingsOpen(false)}
+        />
+      )}
       </div>
 
       <div className="relative shrink-0 p-4 pt-1">
@@ -1678,6 +1879,13 @@ export default function TextChatArea({
                 </span>
               </button>
             ))}
+          </div>
+        )}
+
+        {visiblePluginCommands.length > 0 && (
+          <div className="absolute bottom-[82px] left-4 z-50 w-[360px] max-w-[calc(100%-2rem)] overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-[#2b2d31]">
+            <div className="flex items-center gap-2 border-b border-zinc-200 px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-zinc-500 dark:border-zinc-700"><Sparkles className="h-3.5 w-3.5 text-indigo-500" /> Comandos dos plugins</div>
+            {visiblePluginCommands.map((command) => <button key={command.id} type="button" onMouseDown={(event) => { event.preventDefault(); setInputValue(`${command.label} `); textareaRef.current?.focus(); }} className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-zinc-700 transition hover:bg-indigo-50 dark:text-zinc-200 dark:hover:bg-indigo-500/10"><span className="rounded-md bg-indigo-500/10 px-2 py-1 font-mono text-sm font-bold text-indigo-600 dark:text-indigo-300">{command.label}</span><span className="truncate text-xs text-zinc-500 dark:text-zinc-400">{command.description}</span></button>)}
           </div>
         )}
 
@@ -1797,7 +2005,7 @@ export default function TextChatArea({
               <div className="p-2">
                 <EmojiPicker
                   onEmojiClick={handleSelectEmoji}
-                  theme={Theme.AUTO}
+                  theme={emojiTheme}
                   lazyLoadEmojis
                 />
               </div>
@@ -1873,6 +2081,7 @@ export default function TextChatArea({
           </div>
         )}
 
+        {canSendMessages ? (
         <div className="typecord-composer flex flex-col rounded-lg bg-stone-300/50 px-3 py-2 dark:bg-[#383a40]">
           {replyingTo && (
             <div className="flex items-center gap-2 border-b border-stone-400/20 pb-2 text-xs dark:border-zinc-700/50">
@@ -2033,6 +2242,11 @@ export default function TextChatArea({
             </div>
           </div>
         </div>
+        ) : (
+          <div className="flex min-h-[52px] items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-100/70 px-4 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:bg-[#2b2d31]/70 dark:text-zinc-400">
+            Você não tem permissão para enviar mensagens neste canal.
+          </div>
+        )}
       </div>
     </div>
   );

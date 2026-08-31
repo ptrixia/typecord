@@ -220,6 +220,15 @@ function serializeEmbed(embed: any) {
   };
 }
 
+function getDisplayMessageContent(value: string) {
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed.content === "string" ? parsed.content : value;
+  } catch {
+    return value;
+  }
+}
+
 function serializeMessage(message: any, bot: any) {
   return {
     id: message.id,
@@ -248,7 +257,7 @@ function serializeMessage(message: any, bot: any) {
             message.replyTo.member.nickname ||
             message.replyTo.member.user.globalName ||
             message.replyTo.member.user.username,
-          content: message.replyTo.deleted ? "Mensagem apagada" : message.replyTo.content,
+          content: message.replyTo.deleted ? "Mensagem apagada" : getDisplayMessageContent(message.replyTo.content),
           avatarUrl: message.replyTo.member.user.avatarUrl,
         }
       : null,

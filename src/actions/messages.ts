@@ -6,12 +6,21 @@ import { db } from "@/lib/db";
 import { gatewayService } from "@/lib/gateway/GatewayService";
 import { getCurrentUser } from "@/lib/current-user";
 import { Permissions, hasPermission } from "@/lib/permissions";
+import {
+  decodeMessageCursor,
+  encodeMessageCursor,
+} from "@/services/message-service";
+import { incrementChannelUnread } from "@/services/read-state-service";
+import { getFileUrl } from "@/lib/validations";
 import { emitToChannel } from "@/lib/realtime/emitter";
 import { isOwnedUploadKey } from "@/lib/storage-access";
 import { storageObjectExists } from "@/lib/storage";
+import { executePluginCommand } from "@/lib/plugins";
+import { createMessageNotifications } from "@/lib/notifications";
 
 type MessagePayload = {
   content: string;
+  expiresAt?: string | null;
   reply?: {
     messageId: string;
     author: string;
@@ -65,6 +74,7 @@ function parseMessagePayload(rawContent: string): MessagePayload {
       const value = parsed as Record<string, unknown>;
       return {
         content: typeof value.content === "string" ? value.content : "",
+        expiresAt: typeof value.expiresAt === "string" ? value.expiresAt : null,
         reply:
           value.reply && typeof value.reply === "object" && !Array.isArray(value.reply)
             ? (value.reply as MessagePayload["reply"])
@@ -91,6 +101,7 @@ function parseMessagePayload(rawContent: string): MessagePayload {
 
   return {
     content: rawContent,
+    expiresAt: null,
     reply: null,
     attachments: [],
     embeds: [],
@@ -136,9 +147,7 @@ function normalizeDatabaseEmbed(embed: any) {
 
 function serializeAttachment(attachment: any) {
   const key = String(attachment.key ?? attachment.url ?? "");
-  const url = key
-    ? `/api/files?key=${encodeURIComponent(key)}`
-    : attachment.url ?? null;
+  const url = key ? getFileUrl(key) : attachment.url ?? null;
 
   return {
     ...attachment,
@@ -156,20 +165,22 @@ function serializeAttachment(attachment: any) {
 }
 
 function groupReactions(reactions: any[], currentUserId?: string) {
-  const grouped = new Map<string, { emoji: string; count: number; reactedByMe: boolean }>();
+  const grouped = new Map<string, { emoji: string; count: number; reactedByMe: boolean; users: Array<{ id: string; name: string }> }>();
 
   for (const reaction of reactions) {
     const emoji = reaction.unicode || reaction.emoji?.name || "";
     if (!emoji) continue;
 
-    const current = grouped.get(emoji) ?? {
+    const current: { emoji: string; count: number; reactedByMe: boolean; users: Array<{ id: string; name: string }> } = grouped.get(emoji) ?? {
       emoji,
       count: 0,
       reactedByMe: false,
+      users: [],
     };
 
     current.count += 1;
     current.reactedByMe ||= Boolean(currentUserId) && reaction.member?.userId === currentUserId;
+    if (reaction.member?.user) current.users.push({ id: String(reaction.member.user.id), name: reaction.member.user.globalName || reaction.member.user.username });
     grouped.set(emoji, current);
   }
 
@@ -249,6 +260,21 @@ function serializeMessage(message: any, currentUserId?: string) {
     ? message.embeds.map(normalizeDatabaseEmbed)
     : [];
 
+  const storedReply = message.replyTo
+    ? {
+        messageId: String(message.replyTo.id),
+        author:
+          message.replyTo.member?.nickname ||
+          message.replyTo.member?.user?.globalName ||
+          message.replyTo.member?.user?.username ||
+          "Usuário",
+        content: message.replyTo.deleted
+          ? "Mensagem apagada"
+          : parseMessagePayload(String(message.replyTo.content ?? "")).content,
+        avatarUrl: message.replyTo.member?.user?.avatarUrl ?? null,
+      }
+    : null;
+
   return {
     id: String(message.id),
     author:
@@ -261,8 +287,18 @@ function serializeMessage(message: any, currentUserId?: string) {
       message.createdAt instanceof Date
         ? message.createdAt.toISOString()
         : new Date(message.createdAt).toISOString(),
+    expiresAt: message.expiresAt instanceof Date
+      ? message.expiresAt.toISOString()
+      : message.expiresAt
+        ? new Date(message.expiresAt).toISOString()
+        : null,
+    editedAt: message.editedAt instanceof Date
+      ? message.editedAt.toISOString()
+      : message.editedAt
+        ? new Date(message.editedAt).toISOString()
+        : null,
     content: payload.content,
-    reply: payload.reply ?? null,
+    reply: payload.reply ?? storedReply,
     attachments: payload.attachments?.length
       ? payload.attachments.map(serializeAttachment)
       : Array.isArray(message.attachments)
@@ -276,6 +312,14 @@ function serializeMessage(message: any, currentUserId?: string) {
     isWebhook: false,
     isBot,
     isBotVerified,
+    threads: Array.isArray(message.createdThreads)
+      ? message.createdThreads.map((thread: any) => ({
+          id: String(thread.id),
+          name: String(thread.name),
+          type: thread.type,
+          parentId: thread.parentId ?? null,
+        }))
+      : [],
   };
 }
 
@@ -371,7 +415,7 @@ async function validateAttachments(
   return normalized;
 }
 
-export async function getMessages(channelId: string) {
+export async function getMessages(channelId: string, rawCursor?: string) {
   if (!channelId) {
     return [];
   }
@@ -404,16 +448,44 @@ export async function getMessages(channelId: string) {
       throw new Error("Sem acesso ao canal.");
     }
 
+    const cursor = decodeMessageCursor(rawCursor);
+    if (rawCursor && !cursor) throw new Error("Cursor inválido.");
+
     const messages = await db.message.findMany({
-      where: { channelId, deleted: false },
+      where: {
+        channelId,
+        deleted: false,
+        AND: [
+          { OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+          ...(cursor ? [{ OR: [
+            { createdAt: { lt: new Date(cursor.createdAt) } },
+            { createdAt: new Date(cursor.createdAt), id: { lt: cursor.id } },
+          ] }] : []),
+        ],
+      },
       select: {
         id: true,
         content: true,
         createdAt: true,
+        editedAt: true,
+        expiresAt: true,
         member: {
           select: {
             nickname: true,
             user: { select: userSelect },
+          },
+        },
+        replyTo: {
+          select: {
+            id: true,
+            content: true,
+            deleted: true,
+            member: {
+              select: {
+                nickname: true,
+                user: { select: { username: true, globalName: true, avatarUrl: true } },
+              },
+            },
           },
         },
         attachments: true,
@@ -421,7 +493,7 @@ export async function getMessages(channelId: string) {
         reactions: {
           include: {
             emoji: true,
-            member: { select: { userId: true } },
+            member: { select: { userId: true, user: { select: { id: true, username: true, globalName: true } } } },
           },
         },
         poll: {
@@ -434,15 +506,23 @@ export async function getMessages(channelId: string) {
           },
         },
         voiceMessage: true,
+        createdThreads: {
+          select: { id: true, name: true, type: true, parentId: true },
+        },
       },
-      orderBy: { createdAt: "asc" },
-      take: 50,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 51,
     });
 
-    return messages.map((message) => serializeMessage(message, user.id));
+    const hasMore = messages.length > 50;
+    const page = messages.slice(0, 50);
+    return {
+      items: page.reverse().map((message) => serializeMessage(message, user.id)),
+      nextCursor: hasMore ? encodeMessageCursor(page[page.length - 1]!) : null,
+    };
   } catch (error) {
     console.error("[GET_MESSAGES_ERROR]", error);
-    return [];
+    return { items: [], nextCursor: null };
   }
 }
 
@@ -462,7 +542,7 @@ export async function sendMessageAction(channelId: string, rawContent: string) {
 
   const channel = await db.channel.findUnique({
     where: { id: channelId },
-    select: { id: true, guildId: true },
+    select: { id: true, guildId: true, locked: true, slowmodeSeconds: true },
   });
 
   if (!channel) {
@@ -484,6 +564,22 @@ export async function sendMessageAction(channelId: string, rawContent: string) {
 
   const payload = parseMessagePayload(rawContent);
   payload.content = payload.content.trim();
+  const messageExpiresAt = payload.expiresAt ? new Date(payload.expiresAt) : null;
+  if (messageExpiresAt && (Number.isNaN(messageExpiresAt.getTime()) || messageExpiresAt <= new Date())) {
+    throw new Error("O prazo da mensagem temporária é inválido.");
+  }
+
+  const isPluginCommand = /^\/[a-z0-9-]{1,32}(?:\s|$)/i.test(payload.content);
+  if (channel.locked && !isPluginCommand) {
+    throw new Error("Este canal está bloqueado para novas mensagens.");
+  }
+  if (channel.slowmodeSeconds > 0 && !isPluginCommand) {
+    const lastMessage = await db.message.findFirst({ where: { channelId, memberId: (await db.member.findUnique({ where: { userId_guildId: { userId: user.id, guildId: channel.guildId } }, select: { id: true } }))?.id, deleted: false }, orderBy: { createdAt: "desc" }, select: { createdAt: true } });
+    if (lastMessage) {
+      const remaining = channel.slowmodeSeconds - Math.floor((Date.now() - lastMessage.createdAt.getTime()) / 1000);
+      if (remaining > 0) throw new Error(`Aguarde ${remaining}s para enviar outra mensagem.`);
+    }
+  }
 
   if (payload.content.length > 8000) {
     throw new Error("A mensagem não pode passar de 8.000 caracteres.");
@@ -534,6 +630,24 @@ export async function sendMessageAction(channelId: string, rawContent: string) {
     throw new Error("Você não é membro deste servidor.");
   }
 
+  let replyToUserId: string | null = null;
+  if (payload.reply?.messageId) {
+    const repliedMessage = await db.message.findFirst({
+      where: { id: payload.reply.messageId, channelId, deleted: false },
+      select: { id: true, member: { select: { userId: true } } },
+    });
+    if (!repliedMessage) throw new Error("Mensagem respondida inválida.");
+    replyToUserId = repliedMessage.member.userId;
+  }
+
+  const pluginResponse = await executePluginCommand({
+    guildId: channel.guildId,
+    channelId,
+    userId: user.id,
+    content: payload.content,
+  });
+  if (pluginResponse) payload.content = pluginResponse;
+
   const activeTimeout = await db.moderationAction.findFirst({
     where: {
       guildId: channel.guildId,
@@ -570,6 +684,8 @@ export async function sendMessageAction(channelId: string, rawContent: string) {
       content: persistedContent,
       channelId,
       memberId: member.id,
+      expiresAt: messageExpiresAt,
+      ...(payload.reply?.messageId ? { replyToId: payload.reply.messageId } : {}),
       attachments: {
         create: attachments.map((attachment) => ({
           url: String(attachment.key ?? attachment.url ?? ""),
@@ -607,10 +723,25 @@ export async function sendMessageAction(channelId: string, rawContent: string) {
       id: true,
       content: true,
       createdAt: true,
+      editedAt: true,
+      expiresAt: true,
       member: {
         select: {
           nickname: true,
           user: { select: userSelect },
+        },
+      },
+      replyTo: {
+        select: {
+          id: true,
+          content: true,
+          deleted: true,
+          member: {
+            select: {
+              nickname: true,
+              user: { select: { username: true, globalName: true, avatarUrl: true } },
+            },
+          },
         },
       },
       attachments: true,
@@ -618,7 +749,7 @@ export async function sendMessageAction(channelId: string, rawContent: string) {
       reactions: {
         include: {
           emoji: true,
-          member: { select: { userId: true } },
+          member: { select: { userId: true, user: { select: { id: true, username: true, globalName: true } } } },
         },
       },
       poll: {
@@ -631,17 +762,30 @@ export async function sendMessageAction(channelId: string, rawContent: string) {
         },
       },
       voiceMessage: true,
+      createdThreads: {
+        select: { id: true, name: true, type: true, parentId: true },
+      },
     },
   });
 
   const formattedMessage = serializeMessage(newMessage, user.id);
 
+  void createMessageNotifications({
+    messageId: formattedMessage.id,
+    guildId: channel.guildId,
+    channelId,
+    authorId: user.id,
+    content: payload.content,
+    replyToUserId,
+  }).catch((error) => console.error("[MESSAGE_NOTIFICATION_CREATE]", error));
+
   try {
-    await emitToChannel(channelId, "MESSAGE_CREATE", {
+  await emitToChannel(channelId, "MESSAGE_CREATE", {
       guildId: channel.guildId,
       channelId,
       message: formattedMessage,
-    });
+  });
+  await incrementChannelUnread(channelId, user.id);
   } catch (error) {
     console.error("[MESSAGE_REALTIME_EMIT_ERROR]", error);
   }

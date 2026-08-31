@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Modal from "./Modal";
+import { searchLocalMessages } from "@/lib/local-message-search";
 
 export type CommandItem = {
   id: string;
@@ -41,6 +42,54 @@ export default function SearchCommand({
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  const [messageResults, setMessageResults] = useState<CommandItem[]>([]);
+
+  useEffect(() => {
+    const normalized = query.trim();
+    if (normalized.length < 2) {
+      setMessageResults([]);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        const localResults = searchLocalMessages(normalized, 8).map((result) => ({
+          id: `local-message:${result.id}`,
+          label: result.content,
+          description: `${result.author} em ${result.scopeLabel}`,
+          href: result.href,
+          keywords: ["mensagem", "busca local", result.author],
+        }));
+
+        const response = await fetch(`/api/messages/search?q=${encodeURIComponent(normalized)}&limit=8`, {
+          signal: controller.signal,
+          cache: "no-store",
+        });
+        const body = await response.json().catch(() => null);
+        const remoteResults = response.ok && Array.isArray(body?.results)
+          ? body.results.map((result: { id: string; content: string; author: string; channel: { name: string; guildId: string }; channelId: string }) => ({
+          id: `message:${result.id}`,
+          label: result.content || "Mensagem sem texto",
+          description: `${result.author} em #${result.channel.name}`,
+          href: `/channels/${result.channel.guildId}/${result.channelId}`,
+          keywords: ["mensagem", "buscar", result.author],
+          }))
+          : [];
+        const seen = new Set<string>();
+        setMessageResults([...localResults, ...remoteResults].filter((item) => {
+          if (seen.has(item.label + item.href)) return false;
+          seen.add(item.label + item.href);
+          return true;
+        }).slice(0, 12));
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === "AbortError")) setMessageResults([]);
+      }
+    }, 250);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [query]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -56,9 +105,10 @@ export default function SearchCommand({
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("pt-BR");
-    if (!normalized) return items.slice(0, 10);
+    const availableItems = [...items, ...messageResults];
+    if (!normalized) return availableItems.slice(0, 10);
 
-    return items
+    return availableItems
       .filter((item) => {
         const haystack = [
           item.label,
@@ -72,7 +122,7 @@ export default function SearchCommand({
         return haystack.includes(normalized);
       })
       .slice(0, 12);
-  }, [items, query]);
+  }, [items, messageResults, query]);
 
   useEffect(() => {
     setActiveIndex(0);

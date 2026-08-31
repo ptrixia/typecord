@@ -9,10 +9,6 @@ import { requirePermission } from "@/lib/permissions.server";
 
 export const runtime = "nodejs";
 
-type RouteContext = {
-  params: Promise<{ guildId: string }>;
-};
-
 const createCategorySchema = z.object({
   name: z.string().trim().min(1).max(100),
 });
@@ -39,9 +35,10 @@ function handleError(error: unknown) {
   );
 }
 
-export async function GET(_request: Request, context: RouteContext) {
+export async function GET(request: Request) {
   try {
-    const { guildId } = await context.params;
+    const guildId = new URL(request.url).searchParams.get("guildId")?.trim() ?? "";
+    if (!guildId) return NextResponse.json({ error: "guildId é obrigatório." }, { status: 400 });
     const user = await getCurrentUser();
 
     if (!user) {
@@ -74,9 +71,10 @@ export async function GET(_request: Request, context: RouteContext) {
   }
 }
 
-export async function POST(request: Request, context: RouteContext) {
+export async function POST(request: Request) {
   try {
-    const { guildId } = await context.params;
+    const guildId = new URL(request.url).searchParams.get("guildId")?.trim() ?? "";
+    if (!guildId) return NextResponse.json({ error: "guildId é obrigatório." }, { status: 400 });
     const actor = await requirePermission(guildId, Permissions.MANAGE_CHANNELS);
     const rawBody = await request.json().catch(() => null);
     const parsedBody = createCategorySchema.safeParse(rawBody);

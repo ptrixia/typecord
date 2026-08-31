@@ -18,7 +18,7 @@
 
 O **Typecord** é um cliente de comunidades em desenvolvimento, feito com Next.js e React. A ideia é criar uma experiência familiar para quem já usa servidores, canais e mensagens, mas manter o código simples o bastante para ser estudado e melhorado por qualquer pessoa.
 
-Neste momento, a aplicação funciona como um protótipo de interface: já é possível navegar pela estrutura visual, alternar o tema, abrir o fluxo de criação ou entrada em uma guild e interagir com controles locais. O modelo de dados em Prisma já descreve usuários, guilds, cargos, canais, mensagens, anexos, reações e convites para a próxima etapa do produto.
+O Typecord já possui uma base funcional de produção: autenticação, PostgreSQL via Prisma, Redis, Gateway Socket.IO, mensagens em tempo real, DMs com E2EE, uploads protegidos, moderação, notificações, bots via SDK e cliente desktop Tauri. A plataforma continua em evolução, mas os fluxos principais já estão organizados em camadas executáveis e testáveis.
 
 ## Visão rápida
 
@@ -26,7 +26,7 @@ Neste momento, a aplicação funciona como um protótipo de interface: já é po
 	<img src="public/typecord-flow.svg" alt="Fluxo técnico do Typecord" width="760" />
 </p>
 
-### O que já está no protótipo
+### Recursos disponíveis
 
 - Layout de mensagens com barra superior, canais e lista de membros.
 - Navegação lateral para mensagens diretas e guilds.
@@ -35,14 +35,20 @@ Neste momento, a aplicação funciona como um protótipo de interface: já é po
 - Tema claro e escuro com `next-themes`.
 - Seletor de emojis e integração visual com GIFs.
 - Componentes reutilizáveis baseados em Base UI, Tailwind CSS e Lucide.
+- Mensagens diretas com E2EE por dispositivo, backup criptografado e expiração opcional.
+- Busca local em mensagens descriptografadas, sem enviar o texto local ao servidor.
+- Favoritos e pastas pessoais para organizar conversas diretas.
+- Rich Presence com integração do SDK, bot e cliente Tauri, sem compartilhar o chat atual.
+- Sessões ativas, revogação remota, 2FA, logs de segurança e armazenamento nativo de chaves no desktop.
+- Bloqueio local por PIN no Tauri, com verificação antes de liberar a interface.
+- Denúncias comunitárias com fila administrativa, estados de moderação e auditoria.
 
-### O que vem pela frente
+### Próximas evoluções
 
-- Persistir autenticação, guilds, canais e mensagens no PostgreSQL.
-- Conectar a aplicação ao schema Prisma e criar rotas de servidor.
-- Adicionar mensagens em tempo real e presença dos membros.
-- Implementar permissões, convites reais, uploads e moderação.
-- Cobrir os fluxos principais com testes automatizados.
+- Expandir o E2EE para verificação visual de dispositivos e rotação assistida de chaves.
+- Evoluir o cliente Tauri com tray, atualizações assinadas e integração nativa de notificações.
+- Ampliar moderação, discovery, eventos e ferramentas de comunidade.
+- Cobrir os fluxos principais com testes de integração e E2E.
 
 ## Tecnologias
 
@@ -62,7 +68,7 @@ Neste momento, a aplicação funciona como um protótipo de interface: já é po
 - Node.js 20 ou superior.
 - npm 10 ou superior.
 - Git.
-- PostgreSQL apenas quando a camada de persistência começar a ser usada.
+- PostgreSQL para autenticação, comunidades, mensagens e configurações persistentes.
 - Redis em execução na porta padrão `6379`, localmente ou em um serviço hospedado.
 
 ### Instalação
@@ -105,6 +111,48 @@ Abra [http://localhost:3000](http://localhost:3000) no navegador.
 | `npm run build` | Gera a versão de produção e valida a compilação. |
 | `npm run start` | Executa a versão de produção já compilada. |
 | `npm run lint` | Verifica problemas de qualidade e estilo no código. |
+| `npm run gateway:dev` | Inicia o Gateway Socket.IO em desenvolvimento. |
+| `npm run worker:dev` | Inicia os workers de notificações, arquivos e expiração. |
+| `npm run tauri:dev` | Executa o cliente desktop Tauri. |
+| `npm run tauri:build` | Gera o instalador do cliente desktop. |
+
+### Banco de dados
+
+As alterações de schema são versionadas em `prisma/migrations`. Em um ambiente de
+desenvolvimento, aplique-as com:
+
+```bash
+npx prisma migrate dev
+npx prisma generate
+```
+
+Em produção, use o fluxo não destrutivo:
+
+```bash
+npx prisma migrate deploy
+npx prisma generate
+```
+
+As migrações de E2EE, expiração de mensagens, denúncias e organização de DMs
+precisam ser aplicadas antes de habilitar esses fluxos em uma instalação nova.
+
+### Gateway e Rich Presence
+
+O Gateway Socket.IO distribui criação, edição, exclusão, reações, presença,
+notificações e estados de voz. Bots podem publicar presença sem expor canal ou
+conversa:
+
+```ts
+await client.setRichPresence({
+  type: "PLAYING",
+  name: "Typecord",
+  details: "Servidor online",
+  largeImageUrl: "https://example.com/typecord-isotipo.png",
+});
+```
+
+O cliente reaplica a presença após reconexão. `clearRichPresence()` remove a
+atividade publicada.
 
 ## Webhooks
 
@@ -223,7 +271,7 @@ docs: explicar fluxo de desenvolvimento
 
 ## Estado do projeto
 
-O Typecord está em fase de protótipo funcional de frontend. As interações atuais são locais e podem ser reiniciadas ao recarregar a página. O schema Prisma serve como contrato inicial para o backend, mas a aplicação ainda precisa de autenticação, conexão com banco e uma camada de API para se tornar um produto completo.
+O Typecord está em fase de produto funcional em evolução. Antes de um deploy público, configure secrets independentes para NextAuth e realtime, execute todas as migrações Prisma, mantenha PostgreSQL/Redis em rede privada e valide os fluxos de autenticação, E2EE, uploads e voz no ambiente final.
 
 ## Licença
 
